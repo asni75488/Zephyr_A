@@ -1,0 +1,138 @@
+# Zephyr_A - application Kconfig
+#
+# Project-specific settings. Values are set in prj.conf (and secrets in
+# secrets.conf). Thread priorities/stacks are documented in
+# docs/02-arkitektur.md, section "Thread-tabel".
+#
+# SPDX-License-Identifier: Apache-2.0
+
+menu "Zephyr_A application"
+
+module = APP
+module-str = Zephyr_A application
+source "subsys/logging/Kconfig.template.log_config"
+
+menu "Data acquisition"
+
+config APP_SAMPLE_INTERVAL_MS
+	int "Sampling interval [ms]"
+	range 5000 15000
+	default 10000
+	help
+	  Fixed sampling interval. The requirement allows 5-15 s; the range
+	  makes it impossible to build a firmware outside the requirement.
+
+config APP_BATCH_SIZE
+	int "Samples per MQTT publish (batching)"
+	range 1 12
+	default 6
+	help
+	  Number of samples collected before one Sparkplug B DDATA message is
+	  sent. 6 x 10 s = one message per minute. Must be <= APP_BATCH_MAX.
+
+config APP_BATCH_MAX
+	int
+	default 12
+	help
+	  Compile-time capacity of struct sample_batch.
+
+config APP_SAMPLE_QUEUE_LEN
+	int "Length of the sample queue (sensor -> app_logic)"
+	default 16
+
+endmenu
+
+menu "Sparkplug B"
+
+config APP_SPARKPLUG_GROUP_ID
+	string "Sparkplug group id"
+	default "ProjektA"
+	help
+	  Topic: spBv1.0/<group_id>/<msg_type>/<edge_node_id>[/<device_id>].
+	  The edge node id is derived from the hardware id (device_info).
+
+config APP_SPARKPLUG_DEVICE_ID
+	string "Sparkplug device id for the on-board sensors"
+	default "sensors"
+
+endmenu
+
+menu "Cloud / MQTT"
+
+config APP_MQTT_BROKER_HOST
+	string "MQTT broker host name"
+	default "zephyra.vps.webdock.cloud"
+
+config APP_MQTT_BROKER_PORT
+	int "MQTT broker port (TLS)"
+	default 8883
+
+config APP_MQTT_USERNAME
+	string "MQTT user name (set in secrets.conf)"
+	default ""
+
+config APP_MQTT_PASSWORD
+	string "MQTT password (set in secrets.conf)"
+	default ""
+
+config APP_MQTT_KEEPALIVE_S
+	int "MQTT keep-alive [s]"
+	default 1200
+	help
+	  Long keep-alive = fewer PINGREQ packets = less data and less radio-on
+	  time. Tuned in the low-power part.
+
+endmenu
+
+menu "Threads"
+
+config APP_SENSOR_THREAD_PRIO
+	int "Sensor thread priority"
+	default 4
+
+config APP_SENSOR_THREAD_STACK
+	int "Sensor thread stack size"
+	default 1536
+
+config APP_NETWORK_THREAD_PRIO
+	int "Network thread priority"
+	default 5
+
+config APP_NETWORK_THREAD_STACK
+	int "Network thread stack size"
+	default 2048
+
+config APP_MQTT_THREAD_PRIO
+	int "MQTT thread priority"
+	default 6
+
+config APP_MQTT_THREAD_STACK
+	int "MQTT thread stack size"
+	default 6144
+	help
+	  TLS handshake (Mbed TLS) runs in this thread's context and needs a
+	  large stack. Verified with the thread analyzer in the MQTT part.
+
+config APP_LOGIC_THREAD_PRIO
+	int "App logic thread priority"
+	default 7
+
+config APP_LOGIC_THREAD_STACK
+	int "App logic thread stack size"
+	default 1536
+
+config APP_SPARKPLUG_THREAD_PRIO
+	int "Sparkplug thread priority"
+	default 8
+
+config APP_SPARKPLUG_THREAD_STACK
+	int "Sparkplug thread stack size"
+	default 3072
+	help
+	  nanopb encoding of a batch with up to APP_BATCH_MAX metrics.
+
+endmenu
+
+endmenu
+
+source "Kconfig.zephyr"
