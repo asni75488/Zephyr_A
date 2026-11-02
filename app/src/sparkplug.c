@@ -4,7 +4,7 @@
  * Planned thread (docs/02-arkitektur.md):
  *   K_THREAD_DEFINE(sparkplug_tid, CONFIG_APP_SPARKPLUG_THREAD_STACK, sparkplug_thread,
  *                   NULL, NULL, NULL, CONFIG_APP_SPARKPLUG_THREAD_PRIO, 0, K_TICKS_FOREVER);
- *   K_MSGQ_DEFINE(batch_q, sizeof(struct sample_batch), 2, 8);
+ *   K_MSGQ_DEFINE(batch_q, sizeof(struct measurement_batch), 2, 8);
  *   K_MSGQ_DEFINE(rx_q, ...);  k_poll() on both queues.
  *
  * SPDX-License-Identifier: Apache-2.0
@@ -77,7 +77,7 @@ void sparkplug_on_connected(void)
 {
 }
 
-int sparkplug_submit_batch(const struct sample_batch *batch, k_timeout_t timeout)
+int sparkplug_submit_batch(const struct measurement_batch *batch, k_timeout_t timeout)
 {
 	ARG_UNUSED(batch);
 	ARG_UNUSED(timeout);

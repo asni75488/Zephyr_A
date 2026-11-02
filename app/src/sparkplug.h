@@ -78,7 +78,7 @@ void sparkplug_on_connected(void);
  * The batch is copied.
  * @retval 0 queued, -EAGAIN queue full.
  */
-int sparkplug_submit_batch(const struct sample_batch *batch, k_timeout_t timeout);
+int sparkplug_submit_batch(const struct measurement_batch *batch, k_timeout_t timeout);
 
 /**
  * @brief Queue a received MQTT message (NCMD/DCMD/STATE) for decoding.

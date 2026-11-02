@@ -19,36 +19,45 @@
 extern "C" {
 #endif
 
-/** Where a sample came from. Maps to a Sparkplug metric (name + alias). */
-enum sample_source {
-	SAMPLE_SRC_DIE_TEMP = 0, /**< ESP32-C6 internal temperature sensor */
-	SAMPLE_SRC_MODBUS_0,     /**< First Modbus register (later part)   */
-	SAMPLE_SRC_COUNT
+/** Max number of values (channels) in one measurement. */
+#define APP_MAX_CHANNELS 4
+
+/** Channel id 0 is the internal temperature sensor; Modbus registers follow. */
+#define APP_CHANNEL_DIE_TEMP     0
+#define APP_CHANNEL_MODBUS_FIRST 1
+
+/** Quality of one value (mapped to Sparkplug quality in part 7). */
+enum value_quality {
+	QUALITY_GOOD = 0, /**< value read successfully                          */
+	QUALITY_BAD,      /**< read failed (timeout, CRC, exception, driver)    */
+	QUALITY_STALE,    /**< not read this cycle (Modbus backoff after errors) */
 };
 
-/** Quality flag, sent as a Sparkplug metric property later. */
-enum sample_quality {
-	SAMPLE_QUALITY_GOOD = 0,
-	SAMPLE_QUALITY_BAD,      /**< read failed, value invalid            */
-	SAMPLE_QUALITY_NO_TIME,  /**< value ok, but UTC time not synced yet */
+/** One value of one channel. 8 bytes. */
+struct channel_value {
+	int32_t value_milli; /**< value x 1000, e.g. m°C; 0 if quality != GOOD */
+	uint8_t channel;     /**< channel id (APP_CHANNEL_*)                     */
+	uint8_t quality;     /**< enum value_quality                             */
 };
 
 /**
- * One measurement. 24 bytes; copied by value through k_msgq.
- * Values are integers (milli-units) to avoid float formatting/encoding cost.
+ * One measurement = all channels read in one sampling cycle. 56 bytes,
+ * copied by value through k_msgq.
  */
-struct sample {
-	int64_t timestamp_ms; /**< UTC ms since 1970 (Sparkplug), 0 if unknown */
-	int64_t uptime_ms;    /**< k_uptime_get() when sampled                 */
-	int32_t value_milli;  /**< e.g. temperature in m°C                     */
-	uint8_t source;       /**< enum sample_source                          */
-	uint8_t quality;      /**< enum sample_quality                         */
+struct measurement {
+	int64_t uptime_ms;    /**< k_uptime_get() at the start of the cycle         */
+	int64_t timestamp_ms; /**< UTC ms since 1970; 0 until time sync (part 7)    */
+	uint32_t seq;         /**< measurement counter since boot                   */
+	uint8_t count;        /**< number of valid entries in values[]              */
+	uint8_t quality;      /**< BAD if any value is BAD, else STALE if any is STALE */
+	bool simulated;       /**< true if CONFIG_APP_SENSOR_SIMULATION generated it */
+	struct channel_value values[APP_MAX_CHANNELS];
 };
 
-/** A batch of samples sent as ONE Sparkplug B DDATA message. */
-struct sample_batch {
+/** A batch of measurements sent as ONE Sparkplug B DDATA message. */
+struct measurement_batch {
 	uint8_t count;
-	struct sample samples[CONFIG_APP_BATCH_MAX];
+	struct measurement items[CONFIG_APP_BATCH_MAX];
 };
 
 /** Commands received from the cloud (Sparkplug NCMD/DCMD), decoded. */
@@ -69,6 +78,21 @@ struct app_config {
 	uint32_t sample_interval_ms;
 	uint8_t batch_size;
 };
+
+/** @return Short name of a quality value for logging. */
+static inline const char *value_quality_str(uint8_t q)
+{
+	switch (q) {
+	case QUALITY_GOOD:
+		return "good";
+	case QUALITY_BAD:
+		return "BAD";
+	case QUALITY_STALE:
+		return "stale";
+	default:
+		return "?";
+	}
+}
 
 #ifdef __cplusplus
 }
