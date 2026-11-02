@@ -1,0 +1,16 @@
+/*
+ * Zephyr_A - devicetree overlay for esp32c6_devkitc/esp32c6/hpcore
+ *
+ * All deviations from the board devicetree
+ * (zephyr/boards/espressif/esp32c6_devkitc/esp32c6_devkitc_hpcore.dts)
+ * are made here and documented in docs/hardware.md.
+ *
+ * Part 1: no deviations. The console stays on UART0 (GPIO16 TX / GPIO17 RX),
+ * which is wired to the USB-to-UART bridge on the "UART" USB-C port.
+ *
+ * Planned (Part 3, cellular): UART1 for the M5Stamp CAT-M (SIM7080G)
+ *   ESP32-C6 GPIO18 (UART1 TX) -> module RX
+ *   ESP32-C6 GPIO19 (UART1 RX) <- module TX
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
