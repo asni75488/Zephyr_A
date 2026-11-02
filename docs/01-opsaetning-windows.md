@@ -267,7 +267,7 @@ sæt det i igen for at se, hvilken port der kommer og går.
 cd C:\zp\zephyr_a
 .\scripts\build.ps1                    # = west build --sysbuild -p auto -b esp32c6_devkitc/esp32c6/hpcore -S espressif-flash-4M app -d build
 .\scripts\flash.ps1   -Port COM5       # = west flash -d build (MCUboot først, så app)
-.\scripts\monitor.ps1 -Port COM5       # = west espressif monitor (afslut med Ctrl+])
+.\scripts\monitor.ps1 -Port COM5       # = west espressif monitor (afslut: Ctrl+T og derefter X)
 ```
 
 | Script | Parametre |
@@ -327,6 +327,7 @@ Kommer der en `W (spi_flash): Detected size(...) smaller than ...`-linje, passer
 | Build bruger forkert Zephyr | `west config zephyr.base-prefer configfile`, og tjek `west topdir` = `C:\zp` |
 | Flash: `Failed to connect` / timeout | Brug **UART**-porten, prøv `-Baud 115200`, eller hold **BOOT** nede og tryk **RESET** for at gå i download-mode |
 | Flash: `could not open port ... Access is denied` | Porten er optaget af monitoren eller et andet program. Luk det først |
+| Monitoren kan ikke lukkes med Ctrl+] | På dansk tastatur kræver `]` AltGr. Brug **Ctrl+T og derefter X**. Lukker du bare vinduet, sker der ikke noget med boardet |
 | Monitor viser ulæselige tegn | Forkert baudrate: console er 115200 |
 | Reset-årsag `brownout` | Modemets strømspidser – se `docs/hardware.md` |
 

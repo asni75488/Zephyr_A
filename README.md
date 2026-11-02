@@ -21,7 +21,7 @@ cd C:\zp\zephyr_a
 .\scripts\setup.ps1                  # værktøjer, venv, west, Zephyr 4.4.0, SDK, blobs
 .\scripts\build.ps1                  # sysbuild: MCUboot + app
 .\scripts\flash.ps1   -Port COM5     # "UART"-USB-porten på boardet
-.\scripts\monitor.ps1 -Port COM5     # log (afslut med Ctrl+])
+.\scripts\monitor.ps1 -Port COM5     # log (afslut: Ctrl+T og derefter X)
 ```
 
 Detaljeret vejledning: [docs/01-opsaetning-windows.md](docs/01-opsaetning-windows.md)
