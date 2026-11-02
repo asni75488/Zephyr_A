@@ -5,7 +5,7 @@ Opdateres i slutningen af hver del. Detaljeret kravstatus: [02-kravmatrix.md](02
 | Del | Emne | Branch | Status |
 |---|---|---|---|
 | 1 | Udviklingsmiljø Windows 11 + repo-skelet | `del-01-setup` | ✅ Godkendt |
-| 2 | Design: arkitektur, tråde, IPC, pin-plan, kravmatrix, modul-skelet | `del-02-design` | Færdig – afventer test og godkendelse |
+| 2 | Design: arkitektur, tråde, IPC, pin-plan, kravmatrix, modul-skelet | `del-02-design` | Testet på hardware – afventer godkendelse |
 | 3 | Cellulært netværk (SIM7080G, CMUX, PPP) | – | Ikke startet |
 | 4 | Cloud-server (Webdock: SSH, Mosquitto, Let's Encrypt, Node-RED) | – | Ikke startet |
 | 5 | MQTT + TLS (Mbed TLS 4.1/PSA) | – | Ikke startet |
@@ -42,8 +42,9 @@ Opdateres i slutningen af hver del. Detaljeret kravstatus: [02-kravmatrix.md](02
 
 ### Mangler (test på hardware)
 
-- [ ] `git pull` + `setup.ps1 -SkipWinget` (henter `tf-psa-crypto`)
-- [ ] `build.ps1 -Pristine`, `flash.ps1`, `monitor.ps1`: boot-log viser modulernes init-linjer og heartbeat
+- [x] `setup.ps1 -SkipWinget` (henter `tf-psa-crypto`)
+- [x] `build.ps1 -Pristine`, `flash.ps1`, `monitor.ps1`: testet 2026-11-02. Boot-log viser device-id,
+      firmware `0.2.0-del02`, config (10000 ms / 6), én linje pr. modul og heartbeat hvert 5,001 s
 
 ## Kendte problemer / noter
 
