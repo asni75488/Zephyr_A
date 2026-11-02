@@ -1,0 +1,36 @@
+# West manifest for Zephyr_A (Project A, Industrial IoT, Micro Technic)
+#
+# Topology: T2 "star, application is the manifest repository".
+# This repository is the manifest repository. Zephyr itself is pinned to the
+# v4.4.0 release tag, and only the modules this project actually needs are
+# imported from Zephyr's own west.yml (name-allowlist). That keeps the
+# workspace small (no 60+ HAL repositories) and makes builds reproducible.
+#
+# Workspace layout after "west init -l" + "west update" (C:\zp):
+#   C:\zp\zephyr_a     <- this repository (manifest + application)
+#   C:\zp\zephyr       <- Zephyr v4.4.0
+#   C:\zp\modules\...  <- allowlisted modules
+#   C:\zp\bootloader\mcuboot
+
+manifest:
+  version: "1.2"
+
+  remotes:
+    - name: zephyrproject-rtos
+      url-base: https://github.com/zephyrproject-rtos
+
+  projects:
+    - name: zephyr
+      remote: zephyrproject-rtos
+      revision: v4.4.0
+      import:
+        # Only these modules are fetched. Revisions are taken from
+        # zephyr/west.yml at v4.4.0, so they always match the Zephyr version.
+        name-allowlist:
+          - hal_espressif   # ESP32-C6 HAL, RF blobs, LP-core support, "west espressif" commands
+          - mbedtls         # TLS for the MQTT connection (CONFIG_MBEDTLS)
+          - mcuboot         # Default bootloader for esp32c6_devkitc with sysbuild
+          - nanopb          # Protocol Buffers encoder for Sparkplug B payloads
+
+  self:
+    path: zephyr_a
