@@ -5,9 +5,10 @@
  * threads. main itself owns no data and does no periodic work once the
  * module threads run (see docs/02-arkitektur.md).
  *
- * Part 2: module skeletons only. The start functions return -ENOSYS until
- * the module is implemented; until then main keeps the part-1 heartbeat so
- * the board still shows signs of life.
+ * Modules whose start function returns -ENOSYS are not implemented yet.
+ * Part 3: sensor + app_logic run; the measurement log replaces the
+ * heartbeat of parts 1-2, so main returns after start-up (its thread ends,
+ * the module threads keep running).
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -20,7 +21,6 @@
 
 #include "app_logic.h"
 #include "device_info.h"
-#include "modbus.h"
 #include "mqtt_client.h"
 #include "network.h"
 #include "power.h"
@@ -29,8 +29,6 @@
 #include "timesync.h"
 
 LOG_MODULE_REGISTER(app_main, CONFIG_APP_LOG_LEVEL);
-
-#define HEARTBEAT_PERIOD K_SECONDS(5)
 
 struct module {
 	const char *name;
@@ -48,7 +46,6 @@ static const struct module modules[] = {
 	{"sparkplug", sparkplug_init, sparkplug_start},
 	{"mqtt", app_mqtt_init, app_mqtt_start},
 	{"network", network_init, network_start},
-	{"modbus", app_modbus_init, NULL},
 	{"sensor", app_sensor_init, app_sensor_start},
 };
 
@@ -86,14 +83,6 @@ int main(void)
 	(void)device_info_init();
 	init_and_start_modules();
 
-	uint32_t count = 0U;
-
-	while (true) {
-		count++;
-		LOG_INF("heartbeat #%u device=%s uptime=%lld ms", count, device_info_id(),
-			k_uptime_get());
-		k_sleep(HEARTBEAT_PERIOD);
-	}
-
+	LOG_INF("Start-up complete");
 	return 0;
 }
