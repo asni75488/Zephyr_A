@@ -1,5 +1,5 @@
 /*
- * Zephyr_A - network (skeleton, implemented in part 3).
+ * Zephyr_A - network (skeleton, implemented in part 4).
  *
  * Planned thread (docs/02-arkitektur.md):
  *   K_THREAD_DEFINE(network_tid, CONFIG_APP_NETWORK_THREAD_STACK, network_thread,

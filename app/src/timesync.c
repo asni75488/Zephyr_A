@@ -1,5 +1,5 @@
 /*
- * Zephyr_A - timesync (skeleton, implemented in part 5/6).
+ * Zephyr_A - timesync (skeleton, implemented in part 7).
  *
  * SPDX-License-Identifier: Apache-2.0
  */

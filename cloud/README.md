@@ -3,7 +3,7 @@
 Server side of Project A, running on the Webdock VPS
 (`zephyra.vps.webdock.cloud`, Ubuntu 24.04 "Noble", LEMP image).
 
-Filled in part 4 (cloud server). Planned content:
+Filled in part 5 (cloud server). Planned content:
 
 | Path | Purpose |
 |---|---|

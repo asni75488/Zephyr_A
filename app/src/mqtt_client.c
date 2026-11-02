@@ -1,5 +1,5 @@
 /*
- * Zephyr_A - mqtt_client (skeleton, implemented in part 5).
+ * Zephyr_A - mqtt_client (skeleton, implemented in part 6).
  *
  * Planned thread (docs/02-arkitektur.md):
  *   K_THREAD_DEFINE(mqtt_tid, CONFIG_APP_MQTT_THREAD_STACK, mqtt_thread,

@@ -3,7 +3,7 @@
 Local folder for TLS certificates and keys. **Everything in this folder except
 this README and `*.example` files is ignored by git** (see `.gitignore`).
 
-Planned content (part 4/5):
+Planned content (part 5/6):
 
 | File | Secret? | Purpose |
 |---|---|---|
