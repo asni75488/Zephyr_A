@@ -39,14 +39,19 @@ brug.
 | GPIO16 | UART0 TX (console/log) | USB-UART-bro ("UART"-porten) | 1 | Board-standard, uændret |
 | GPIO17 | UART0 RX (console/log) | USB-UART-bro ("UART"-porten) | 1 | Board-standard, uændret |
 | GPIO12 / GPIO13 | USB D- / D+ (USB Serial/JTAG) | "USB"-porten | – | Board-standard, uændret |
-| GPIO18 | UART1 TX | Modulets RX | 3 | Planlagt afvigelse (overlay i del 3) |
-| GPIO19 | UART1 RX | Modulets TX | 3 | Planlagt afvigelse (overlay i del 3) |
+| GPIO18 | UART1 TX | Modulets RX | 3 | Planlagt afvigelse (overlay i del 3). Pinctrl `UART1_TX_GPIO18` verificeret |
+| GPIO19 | UART1 RX | Modulets TX | 3 | Planlagt afvigelse (overlay i del 3). Pinctrl `UART1_RX_GPIO19` verificeret |
+| GPIO22 | `mdm-power-gpios` (pladsholder) | **Ikke forbundet** | 3 | Kræves af `simcom,sim7080`-bindingen, men modulet har ingen PWRKEY (se `02-arkitektur.md` §6.4) |
+| – | `coretemp` (intern temperatursensor) | – | 6 | `status = "okay"` i overlay (disabled i SoC-dtsi) |
+| GPIO20/21/23 | Reserveret til evt. RS485 (Modbus RTU) | – | senere | Kun hvis Modbus RTU vælges. Så flyttes console til USB Serial/JTAG |
 | 5V | Forsyning | Modulets 5V | – | Se strøm-note nedenfor |
 | GND | Stel | Modulets GND | – | |
 
 GPIO18/19 er almindelige I/O-pins på header J3 (alternative funktioner SDIO/FSPICS),
 ikke strapping-pins, så de er frie til UART1. Det verificeres endeligt i del 3 mod
-pinctrl-definitionerne i Zephyr 4.4.0 (`esp32c6-gpio-sigmap.h`).
+pinctrl-definitionerne i Zephyr 4.4.0 (`esp32c6-gpio-sigmap.h`). Makroerne findes (tjekket i del 2).
+
+UART-planen og vurderingen af console på USB Serial/JTAG står i `02-arkitektur.md` §6.
 
 ## Kendte begrænsninger
 

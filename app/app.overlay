@@ -8,9 +8,16 @@
  * Part 1: no deviations. The console stays on UART0 (GPIO16 TX / GPIO17 RX),
  * which is wired to the USB-to-UART bridge on the "UART" USB-C port.
  *
- * Planned (Part 3, cellular): UART1 for the M5Stamp CAT-M (SIM7080G)
- *   ESP32-C6 GPIO18 (UART1 TX) -> module RX
- *   ESP32-C6 GPIO19 (UART1 RX) <- module TX
+ * Flash size (4 MB instead of the board's 8 MB) is set with the official
+ * snippet espressif-flash-4M (scripts/build.ps1), not in this file.
+ *
+ * Planned (design: docs/02-arkitektur.md section 6.5):
+ *   Part 3: UART1 for the M5Stamp CAT-M (SIM7080G), 115200 8N1, no RTS/CTS
+ *     ESP32-C6 GPIO18 (UART1 TX) -> module RX
+ *     ESP32-C6 GPIO19 (UART1 RX) <- module TX
+ *     modem node "simcom,sim7080" with "autostarts"; the required
+ *     mdm-power-gpios points to GPIO22 (NOT connected - module has no PWRKEY)
+ *   Part 6: &coretemp { status = "okay"; } (internal temperature sensor)
  *
  * SPDX-License-Identifier: Apache-2.0
  */
