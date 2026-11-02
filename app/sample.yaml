@@ -1,0 +1,18 @@
+sample:
+  name: Zephyr_A Project A (ESP32-C6 cellular IIoT node)
+  description: >
+    ESP32-C6-DevKitC node that collects data and publishes Sparkplug B over
+    MQTT/TLS via a cellular modem to a self-hosted server.
+tests:
+  zephyr_a.build:
+    platform_allow:
+      - esp32c6_devkitc/esp32c6/hpcore
+    integration_platforms:
+      - esp32c6_devkitc/esp32c6/hpcore
+    sysbuild: true
+    build_only: true
+    # Project board has 4 MB flash (board default is 8 MB), see docs/hardware.md
+    extra_args:
+      - SNIPPET=espressif-flash-4M
+    tags:
+      - iiot

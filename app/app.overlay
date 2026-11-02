@@ -1,0 +1,32 @@
+/*
+ * Zephyr_A - devicetree overlay for esp32c6_devkitc/esp32c6/hpcore
+ *
+ * All deviations from the board devicetree
+ * (zephyr/boards/espressif/esp32c6_devkitc/esp32c6_devkitc_hpcore.dts)
+ * are made here and documented in docs/hardware.md.
+ *
+ * Console stays on UART0 (GPIO16 TX / GPIO17 RX),
+ * which is wired to the USB-to-UART bridge on the "UART" USB-C port.
+ *
+ * Flash size (4 MB instead of the board's 8 MB) is set with the official
+ * snippet espressif-flash-4M (scripts/build.ps1), not in this file.
+ *
+ * Planned (design: docs/02-arkitektur.md section 6.5):
+ *   Part 4 (cellular): UART1 for the M5Stamp CAT-M (SIM7080G), 115200 8N1, no RTS/CTS
+ *     ESP32-C6 GPIO18 (UART1 TX) -> module RX
+ *     ESP32-C6 GPIO19 (UART1 RX) <- module TX
+ *     modem node "simcom,sim7080" with "autostarts"; the required
+ *     mdm-power-gpios points to GPIO22 (NOT connected - module has no PWRKEY)
+ *
+ * Modbus RTU variant (RS485 on UART0, console on USB Serial/JTAG): see
+ * app/modbus-rtu.overlay, used by scripts\build.ps1 -ModbusRtu.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/* Part 3: enable the internal temperature sensor (disabled in the SoC dtsi).
+ * Read with the Zephyr sensor API, channel SENSOR_CHAN_DIE_TEMP.
+ */
+&coretemp {
+	status = "okay";
+};
