@@ -18,4 +18,4 @@ pip install --user $(west packages pip)
 west blobs fetch hal_espressif --auto-accept
 
 echo "Devcontainer ready. Build with:"
-echo "  west build --sysbuild -p auto -b esp32c6_devkitc/esp32c6/hpcore app -d build"
+echo "  west build --sysbuild -p auto -b esp32c6_devkitc/esp32c6/hpcore -S espressif-flash-4M app -d build"

@@ -11,5 +11,8 @@ tests:
       - esp32c6_devkitc/esp32c6/hpcore
     sysbuild: true
     build_only: true
+    # Project board has 4 MB flash (board default is 8 MB), see docs/hardware.md
+    extra_args:
+      - SNIPPET=espressif-flash-4M
     tags:
       - iiot
