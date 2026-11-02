@@ -41,7 +41,8 @@ Opdateres i slutningen af hver del.
 - [x] `build.ps1`, `flash.ps1`, `monitor.ps1` testet på boardet (COM3)
 - [x] Log: `boot`, `Device id: esp32c6-14c19fe0ab24`, `Zephyr version: 4.4.0`, `Reset cause: power-on`,
       heartbeat hvert 5,001 s
-- [ ] Gentest efter flash-størrelsesrettelsen: `W (spi_flash): Detected size...` må ikke længere vises
+- [x] Gentest efter flash-størrelsesrettelsen: MCUboot viser `SPI Flash Size : 4MB`, ingen `Detected size`-advarsel
+- [x] Monitoren lukkes med Ctrl+T, X
 
 ### Rettet efter hardwaretest
 
