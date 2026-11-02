@@ -32,7 +32,8 @@ firmwaren blev bygget med. Det er også en del af sikkerhedsargumentet senere
 | Modul | Hvorfor |
 |---|---|
 | `hal_espressif` | Hardware-abstraktion til ESP32-C6, RF-blobs, LP-core-understøttelse og `west espressif monitor` |
-| `mbedtls` | TLS-stakken til den sikre MQTT-forbindelse |
+| `mbedtls` | TLS-stakken til den sikre MQTT-forbindelse (Mbed TLS 4.1) |
+| `tf-psa-crypto` | PSA Crypto-kernen, som Mbed TLS 4.x bygger på (tilføjet i del 2, se `02-arkitektur.md` §9) |
 | `mcuboot` | Bootloaderen, som `esp32c6_devkitc` bruger som standard med sysbuild. Giver også mulighed for signeret boot/OTA senere |
 | `nanopb` | Protocol Buffers-encoder – Sparkplug B-payloads er protobuf |
 
@@ -183,10 +184,10 @@ Scripts i `scripts\` gør det automatisk.
 ```powershell
 cd C:\zp
 west init -l C:\zp\zephyr_a                 # repoet er manifestet
-west update --narrow -o=--depth=1           # henter Zephyr v4.4.0 + 4 moduler
+west update --narrow -o=--depth=1           # henter Zephyr v4.4.0 + 5 moduler
 west config zephyr.base-prefer configfile   # ignorér globale ZEPHYR_BASE
 west zephyr-export                          # registrerer Zephyr som CMake-pakke
-west list                                   # kontrol: zephyr v4.4.0 + 4 moduler
+west list                                   # kontrol: zephyr v4.4.0 + 5 moduler
 ```
 
 ### 4.5 Python-krav

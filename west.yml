@@ -28,7 +28,8 @@ manifest:
         # zephyr/west.yml at v4.4.0, so they always match the Zephyr version.
         name-allowlist:
           - hal_espressif   # ESP32-C6 HAL, RF blobs, LP-core support, "west espressif" commands
-          - mbedtls         # TLS for the MQTT connection (CONFIG_MBEDTLS)
+          - mbedtls         # TLS for the MQTT connection (CONFIG_MBEDTLS), Mbed TLS 4.1
+          - tf-psa-crypto   # PSA Crypto core required by Mbed TLS 4.x (used from Zephyr 4.4.0)
           - mcuboot         # Default bootloader for esp32c6_devkitc with sysbuild
           - nanopb          # Protocol Buffers encoder for Sparkplug B payloads
 
