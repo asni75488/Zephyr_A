@@ -4,7 +4,7 @@ Opdateres i slutningen af hver del.
 
 | Del | Emne | Branch | Status |
 |---|---|---|---|
-| 1 | Udviklingsmiljø Windows 11 + repo-skelet | `del-01-setup` | Færdig – afventer test på hardware |
+| 1 | Udviklingsmiljø Windows 11 + repo-skelet | `del-01-setup` | Testet på hardware – afventer godkendelse |
 | 2 | Design: arkitektur, tråde, pin-tabel | `del-02-design` | Ikke startet |
 | 3 | Cellulært netværk (SIM7080G, PPP) | – | Ikke startet |
 | 4 | Cloud-server (Webdock: SSH, Mosquitto, Let's Encrypt, Node-RED) | – | Ikke startet |
@@ -35,10 +35,19 @@ Opdateres i slutningen af hver del.
 - `west flash`-kommandoen er kontrolleret: MCUboot flashes til 0x0 før app'en.
 - Alle PowerShell-scripts er syntakstjekket med PowerShell 7.4.
 
-### Mangler (test på Windows/hardware)
+### Testet på hardware (2026-11-02)
 
-- [ ] `setup.ps1` kørt på Windows 11
-- [ ] `build.ps1`, `flash.ps1`, `monitor.ps1` testet på boardet
+- [x] `setup.ps1` kørt på Windows 11
+- [x] `build.ps1`, `flash.ps1`, `monitor.ps1` testet på boardet (COM3)
+- [x] Log: `boot`, `Device id: esp32c6-14c19fe0ab24`, `Zephyr version: 4.4.0`, `Reset cause: power-on`,
+      heartbeat hvert 5,001 s
+- [ ] Gentest efter flash-størrelsesrettelsen: `W (spi_flash): Detected size...` må ikke længere vises
+
+### Rettet efter hardwaretest
+
+- Boardet har **4 MB flash**, men board-standarden er 8 MB. MCUboot advarede `Detected size(4096k) smaller than
+  the size in the binary image header(8192k)`. Rettet med snippet'en `espressif-flash-4M` i `build.ps1`
+  (gælder både app og MCUboot via sysbuild). Se `docs/hardware.md`.
 
 ## Kendte problemer / noter
 
@@ -48,6 +57,7 @@ Opdateres i slutningen af hver del.
 - Espressif-blobs kunne ikke hentes i testmiljøet (netværksbegrænsning). Det har ingen betydning
   for del 1, fordi Wi-Fi/BLE ikke bruges, men `setup.ps1` henter dem på Windows.
 - Devcontaineren er ikke testet (valgfri).
+- `west espressif monitor` skriver `GDB cannot open serial ports accessed as COMx ... Using \\.\COM3` – harmløst.
 - Pc'en har ældre installationer (`C:\zephyrproject` = 4.4.0, `C:\Users\paulm\zephyrproject` = 4.5.99).
   De bruges ikke. `zephyr.base-prefer=configfile` sikrer, at west bruger `C:\zp`.
 - Modulet (SIM7080G) har ingen PWRKEY/RESET-stift, se `docs/hardware.md`.

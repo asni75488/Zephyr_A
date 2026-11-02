@@ -265,14 +265,14 @@ sæt det i igen for at se, hvilken port der kommer og går.
 
 ```powershell
 cd C:\zp\zephyr_a
-.\scripts\build.ps1                    # = west build --sysbuild -p auto -b esp32c6_devkitc/esp32c6/hpcore app -d build
+.\scripts\build.ps1                    # = west build --sysbuild -p auto -b esp32c6_devkitc/esp32c6/hpcore -S espressif-flash-4M app -d build
 .\scripts\flash.ps1   -Port COM5       # = west flash -d build (MCUboot først, så app)
 .\scripts\monitor.ps1 -Port COM5       # = west espressif monitor (afslut med Ctrl+])
 ```
 
 | Script | Parametre |
 |---|---|
-| `build.ps1` | `-Pristine` (ren genopbygning), `-Board <target>`, `-ExtraConf app\secrets.conf` |
+| `build.ps1` | `-Pristine` (ren genopbygning), `-Board <target>`, `-FlashSize 4M` (standard; se `docs/hardware.md`), `-ExtraConf app\secrets.conf` |
 | `flash.ps1` | `-Port COMx` (krævet), `-Baud 115200` (hvis flash fejler) |
 | `monitor.ps1` | `-Port COMx` (krævet), `-Simple` (pyserial miniterm i stedet for idf_monitor) |
 
@@ -308,6 +308,9 @@ west boards | Select-String esp32c6
 
 Før Zephyr-loggen kommer der et par linjer fra ROM-bootloaderen og MCUboot. Det er
 normalt.
+
+Kommer der en `W (spi_flash): Detected size(...) smaller than ...`-linje, passer
+`-FlashSize` ikke til boardet. Projektets board har 4 MB (standard i `build.ps1`).
 
 ---
 

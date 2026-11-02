@@ -8,10 +8,29 @@ laves i `app/app.overlay` og dokumenteres her.
 
 | Komponent | Model | Bemærkning |
 |---|---|---|
-| MCU-board | Espressif ESP32-C6-DevKitC-1 | Zephyr board target: `esp32c6_devkitc/esp32c6/hpcore` (HP-kerne), `esp32c6_devkitc/esp32c6/lpcore` (LP-kerne) |
+| MCU-board | Espressif ESP32-C6-DevKitC-1, chip rev. v0.2, **4 MB flash** | Zephyr board target: `esp32c6_devkitc/esp32c6/hpcore` (HP-kerne), `esp32c6_devkitc/esp32c6/lpcore` (LP-kerne) |
 | Cellulært modul | M5Stack S003 "M5Stamp CAT-M" (SIMCom SIM7080G) | LTE Cat-M / NB-IoT, AT-kommandoer over UART 115200 8N1 |
 | SIM | Onomondo | Ingen PIN |
 | Antenne | Medfølgende SMA-antenne via IPEX-kabel | Skal altid være monteret, når modemet er tændt |
+
+## Afvigelse: flash-størrelse (4 MB i stedet for 8 MB)
+
+Boardets devicetree antager et modul med 8 MB flash (`esp32c6_wroom_n8.dtsi`). Projektets
+board har **4 MB**. Det viste første test i del 1, hvor bootloaderen skrev:
+
+```
+W (spi_flash): Detected size(4096k) smaller than the size in the binary image header(8192k). Using detected size.
+```
+
+**Løsning:** Espressifs officielle board-variant-snippet `espressif-flash-4M`
+(`zephyr/snippets/espressif`, dokumenteret i `boards/espressif/common/board-variants.rst`).
+Den sætter `flash0` til 4 MB og vælger partitionstabellen til 4 MB. `build.ps1` tilføjer
+`-S espressif-flash-4M`, og med sysbuild gælder snippet'en for både applikationen og MCUboot
+(verificeret: `CONFIG_FLASH_SIZE=4194304` og `--esp-flash-size=4MB` i begge images).
+
+Hvorfor det er vigtigt: Med forkert størrelse ville partitioner (MCUboot-slots, storage)
+kunne placeres over 4 MB. Det giver fejl, så snart OTA eller persistent lagring tages i
+brug.
 
 ## Pin-tabel
 
