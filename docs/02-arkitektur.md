@@ -5,6 +5,11 @@ tråde, kommunikation mellem tråde, tilstandsmaskiner, pin- og UART-plan samt s
 lavt strøm- og dataforbrug. Skelettet i `app/src/` følger præcis denne opdeling. Det bygger
 og kører med de samme log-linjer som Del 1.
 
+> **Opdateret i Del 3:** én måling er nu `struct measurement` (alle kanaler fra samme cyklus med fælles
+> tidsstempel) i stedet for `struct sample` (én værdi). Sensor-tråden drives af en `k_timer` og en semafor.
+> Delene er omnummereret: 3 Dataopsamling, 4 Cellulært netværk, 5 Cloud, 6 MQTT + TLS, 7 Sparkplug + tid.
+> Detaljer: [03-dataopsamling.md](03-dataopsamling.md).
+
 Alle Zephyr-API'er og Kconfig-symboler nævnt her er slået op i **Zephyr v4.4.0**-kildekoden.
 Hvor et valg er verificeret med en prototype-build, står det under
 [Verificerede fund og risici](#9-verificerede-fund-og-risici).
@@ -32,14 +37,14 @@ Sparkplug B `DDATA`-besked over MQTT/TLS via LTE-M til egen broker på Webdock-s
 | `main.c` | Initialiserer moduler i rækkefølge og starter deres tråde | `main` (kun under opstart) | kernel, logging |
 | `device_info.c/.h` | Device-id (fabriks-MAC fra eFuse), firmware-version, reset-årsag | ingen (bibliotek, read-only efter init) | `hwinfo` |
 | `timesync.c/.h` | UTC-tid (SNTP efter PPP up) til tidsstempler | `network` kalder sync, alle læser | `sntp`, `clock_settime` |
-| `sensor.c/.h` | Dataopsamling med fast interval: intern temperatursensor (+ Modbus) | `sensor` | `sensor` (coretemp), `k_sem`, absolutte timeouts |
-| `modbus.c/.h` | Modbus RTU/TCP-klient (kilde ikke afklaret endnu) | kaldes af `sensor` | `modbus` (client) |
+| `sensor.c/.h` | Dataopsamling med fast interval: intern temperatursensor (+ Modbus, simulering) | `sensor` | `sensor` (coretemp), `k_timer`, `k_sem` |
+| `modbus.c/.h` | Modbus RTU-klient med registertabel, retry og backoff | kaldes af `sensor` | `modbus` (client) |
 | `app_logic.c/.h` | Batching, runtime-konfiguration, kommandoer fra cloud (NCMD), sleep-politik | `app_logic` | `k_msgq`, `k_poll`, `k_mutex` |
 | `sparkplug.c/.h` | Sparkplug B-topics, protobuf encode/decode (nanopb), bdSeq/seq, aliases | `sparkplug` | nanopb, `k_msgq`, `k_poll` |
 | `mqtt_client.c/.h` | MQTT 3.1.1 over TLS, Last Will (NDEATH), subscribe NCMD/DCMD, publish | `mqtt` | `mqtt`, `tls_credentials`, sockets, `k_mem_slab` |
 | `network.c/.h` | Cellulær forbindelse: modem power, registrering, PPP, tilstandsmaskine | `network` | `modem_cellular`, `pm_device`, `net_mgmt`, `conn_mgr`, `k_event` |
 | `power.c/.h` | Sleep-politik: lås/tillad light sleep, deep sleep + LP-core-wake | ingen (bibliotek) | `pm`, `pm_policy_state_lock` |
-| `app_types.h` | Fælles datatyper (`struct sample`, `sample_batch`, `app_cmd`, `app_config`) | – | – |
+| `app_types.h` | Fælles datatyper (`struct measurement`, `channel_value`, `measurement_batch`, `app_cmd`, `app_config`) | – | – |
 
 Funktionerne i modulerne `sensor`, `modbus`, `mqtt_client` og `power` har præfiks (`app_sensor_`,
 `app_modbus_`, `app_mqtt_`, `app_power_`). Det undgår navnekonflikter med Zephyrs egne API'er.
@@ -66,17 +71,22 @@ int64_t timesync_uptime_to_utc_ms(int64_t uptime_ms);
 /* sensor.h */
 int  app_sensor_init(void);
 int  app_sensor_start(void);
-int  app_sensor_read_all(struct sample *out, size_t max);
+int  app_sensor_read_all(struct measurement *m);
 void app_sensor_trigger(void);                 /* sample now (NCMD) */
+const char *app_sensor_channel_name(uint8_t channel);
+const char *app_sensor_channel_unit(uint8_t channel);
+void app_sensor_get_stats(struct app_sensor_stats *out);
 
 /* modbus.h */
-int app_modbus_init(void);                     /* -ENOTSUP if not configured */
-int app_modbus_read(struct sample *out, size_t max);
+int    app_modbus_init(void);                  /* -ENOTSUP if not configured */
+size_t app_modbus_channel_count(void);
+const char *app_modbus_channel_name(size_t idx);
+int    app_modbus_read(struct channel_value *out, size_t max);
 
 /* app_logic.h */
 int  app_logic_init(void);
 int  app_logic_start(void);
-int  app_logic_submit_sample(const struct sample *s, k_timeout_t timeout);
+int  app_logic_submit_measurement(const struct measurement *m, k_timeout_t timeout);
 int  app_logic_submit_command(const struct app_cmd *cmd, k_timeout_t timeout);
 void app_logic_get_config(struct app_config *out);   /* k_mutex protected */
 
@@ -86,7 +96,7 @@ int  sparkplug_start(void);
 int  sparkplug_topic(enum sparkplug_msg_type type, char *buf, size_t size);
 int  sparkplug_encode_ndeath(uint8_t *buf, size_t size);
 void sparkplug_on_connected(void);             /* -> NBIRTH + DBIRTH */
-int  sparkplug_submit_batch(const struct sample_batch *batch, k_timeout_t timeout);
+int  sparkplug_submit_batch(const struct measurement_batch *batch, k_timeout_t timeout);
 int  sparkplug_submit_rx(const char *topic, const uint8_t *payload, size_t len);
 
 /* mqtt_client.h */
@@ -145,7 +155,7 @@ Zephyr: **lavere tal = højere prioritet**. Prioriteter ≥ 0 er *preemptive*, n
 
 | Tråd | Modul | Prio | Type | Stack | Periodisk / event | Begrundelse |
 |---|---|---|---|---|---|---|
-| `sensor` | sensor | 4 | preemptive | 1536 B | **Periodisk** (absolut deadline `K_TIMEOUT_ABS_MS`) | Højeste app-prioritet: målingen skal ske til tiden (fast interval). Arbejdet er kort (få ms), så den blokerer ikke andre |
+| `sensor` | sensor | 4 | preemptive | 1536 B | **Periodisk** (`k_timer` → `k_sem`) | Højeste app-prioritet: målingen skal ske til tiden (fast interval). Arbejdet er kort (få ms), så den blokerer ikke andre |
 | `network` | network | 5 | preemptive | 2048 B | Event (net_mgmt-callbacks → `k_event`) | Skal hurtigt reagere på link op/ned, men laver kun lidt arbejde selv – driveren gør det tunge |
 | `mqtt` | mqtt_client | 6 | preemptive | 6144 B | Event (`zsock_poll` på socket + TX-kø, timeout = keep-alive) | TLS-handshake i Mbed TLS bruger meget stack. Under network, så link-hændelser behandles først |
 | `app_logic` | app_logic | 7 | preemptive | 1536 B | Event (`k_poll` på sample- og kommando-kø) | Tidskritisk er kun at kø'en tømmes, før den er fuld (16 pladser = 160 s) |
@@ -157,7 +167,7 @@ app-tråde laver blokerende I/O (UART, socket, TLS) eller venter i køer, så pr
 sikre valg. Cooperative prioritet er forbeholdt Zephyrs egne interne tråde, hvor korte,
 uafbrudte sektioner er vigtige.
 
-Stack-størrelserne er startværdier. De måles med `CONFIG_THREAD_ANALYZER` i Del 5/7 og
+Stack-størrelserne er startværdier. De måles med `CONFIG_THREAD_ANALYZER` i Del 6/7 og
 justeres (krav: mindst 25 % fri stack).
 
 ### 3.2 Zephyrs egne tråde (fra prototype-build)
@@ -181,15 +191,15 @@ tråde, der *venter* i stedet for at polle, er derfor ikke kun pænere kode, de 
 
 | Objekt | Type | Producent → forbruger | Indhold | Hvorfor denne type |
 |---|---|---|---|---|
-| `sample_q` | `k_msgq` (16 × 24 B) | sensor → app_logic | `struct sample` (kopi) | Kopi-semantik: producent og forbruger deler ingen hukommelse. Bufferer 160 s, hvis app_logic er optaget |
+| `meas_q` | `k_msgq` (16 × 56 B) | sensor → app_logic | `struct measurement` (kopi) | Kopi-semantik: producent og forbruger deler ingen hukommelse. Bufferer 160 s, hvis app_logic er optaget |
 | `cmd_q` | `k_msgq` (4) | sparkplug → app_logic | `struct app_cmd` | Kommandoer fra cloud er sjældne og små |
-| `batch_q` | `k_msgq` (2 × ~300 B) | app_logic → sparkplug | `struct sample_batch` | Én batch i arbejde + én i kø er nok (1 batch/min) |
+| `batch_q` | `k_msgq` (2 × ~680 B) | app_logic → sparkplug | `struct measurement_batch` | Én batch i arbejde + én i kø er nok (1 batch/min) |
 | `rx_q` | `k_msgq` (2) | mqtt → sparkplug | modtaget NCMD/DCMD/STATE (topic + payload) | Decoding sker i sparkplug-tråden, ikke i mqtt-tråden |
 | `mqtt_tx_q` | `k_msgq` (4) | sparkplug → mqtt | `struct app_mqtt_msg` (topic + **pointer** til payload) | Payload kopieres ikke to gange |
 | `mqtt_payload_slab` | `k_mem_slab` (4 × 512 B) | sparkplug alloc → mqtt free | encodede protobuf-payloads | Fast hukommelse, ingen heap-fragmentering, deterministisk. Ejerskab følger beskeden |
 | `config_lock` | `k_mutex` | app_logic skriver, sensor læser | `struct app_config` | Delt struktur med flere felter → mutex (prioritetsarv mod priority inversion) |
 | `net_events` | `k_event` | network sætter, mqtt/app_logic venter | `NETWORK_EVT_UP/DOWN/TIME_SYNCED` | Flere tråde kan vente på samme tilstand, og bits kan kombineres. En semafor kan ikke det |
-| `trigger_sem` | `k_sem` | app_logic (NCMD) → sensor | "mål nu" | Simpelt signal uden data. Sensor venter med `k_sem_take(..., K_TIMEOUT_ABS_MS(next))`, så både timeout og trigger vækker den |
+| `sample_sem` | `k_sem` (maks. 1) | `k_timer`-expiry (ISR) og app_logic (NCMD) → sensor | "mål nu" | Timer-ISR'en må kun signalere. Tråden laver arbejdet. Maks. 1, så ticks ikke hober sig op |
 | `k_poll` | – | app_logic, sparkplug | venter på 2 køer samtidig | Én tråd kan betjene to køer uden busy-wait |
 | ring buffer | `ring_buf` (i Zephyr) | UART ISR → modem chat/CMUX/PPP | rå bytes fra modemet | Bruges internt af modem-modulerne (`MODEM_CHAT` vælger `RING_BUFFER`). Ikke i app-koden |
 
@@ -213,12 +223,12 @@ flowchart LR
 
     TEMP -->|sensor API| S
     MB -.->|modbus API| S
-    S -->|sample_q<br/>k_msgq| L
+    S -->|meas_q<br/>k_msgq| L
     L -->|batch_q<br/>k_msgq| P
     P -->|mqtt_tx_q k_msgq<br/>+ payload_slab| M
     M -->|rx_q k_msgq<br/>NCMD/DCMD| P
     P -->|cmd_q k_msgq| L
-    L -.->|trigger_sem<br/>k_sem| S
+    L -.->|sample_sem<br/>k_sem| S
     S -.->|app_config<br/>k_mutex| L
     N ==>|net_events<br/>k_event| M
     M <-->|TLS socket| NET[Zephyr net stack<br/>TCP/IP + PPP]
@@ -301,11 +311,11 @@ sequenceDiagram
 
     Note over N,B: Forudsætning: NETWORK_EVT_UP, MQTT forbundet,<br/>NBIRTH + DBIRTH sendt (seq 0, 1)
 
-    loop hvert 10. s (absolut deadline)
-        S->>S: sensor_sample_fetch(coretemp)
-        S->>S: timestamp = timesync_now_ms()
-        S->>L: app_logic_submit_sample() → sample_q
-        L->>L: batch.samples[n++] = sample
+    loop hvert 10. s (k_timer → k_sem)
+        S->>S: sensor_sample_fetch(coretemp) (+ Modbus)
+        S->>S: uptime_ms (UTC fra Del 7)
+        S->>L: app_logic_submit_measurement() → meas_q
+        L->>L: batch.items[n++] = measurement
     end
 
     Note over L: batch.count == batch_size (6)
@@ -319,7 +329,7 @@ sequenceDiagram
     alt link mistet
         N-->>M: k_event NETWORK_EVT_DOWN
         M->>M: state BACKOFF, behold batches i kø
-        Note over L: sample_q/batch_q bufferer imens
+        Note over L: meas_q/batch_q bufferer imens
     end
 ```
 
@@ -424,12 +434,12 @@ og modemet tænder selv, når det får strøm.
 egenskaben `autostarts`, så driveren venter på, at modemet er klar, i stedet for at forvente en
 power-puls. Driveren styrer dermed en pin, der ikke er forbundet. Det er harmløst, men skal
 dokumenteres som en afvigelse. Prototype-buildet med denne devicetree compilerer (se afsnit 9).
-Opførslen på hardwaren testes i Del 3.
+Opførslen på hardwaren testes i Del 4.
 
 Konsekvens: firmwaren kan ikke slukke modemet helt. "Radio off" sker med `AT+CFUN=4` (driverens
 suspend) og PSM. Fuld sluk kræver en load-switch i 5 V-forsyningen. Det er en mulig forbedring.
 
-### 6.5 Planlagt overlay (indføres i Del 3 og 6)
+### 6.5 Planlagt overlay (coretemp indført i Del 3, modem i Del 4)
 
 ```dts
 &pinctrl {
@@ -531,13 +541,13 @@ Prototypen brugte 274 kB flash (6,5 %) og 104 kB RAM (20 %) uden TLS.
 | # | Fund | Konsekvens / handling |
 |---|---|---|
 | F1 | Zephyr 4.4.0 bruger **Mbed TLS 4.1**, som kræver west-modulet `tf-psa-crypto` | Manglede i Del 1's `west.yml`. **Tilføjet i denne del.** Kør `west update` |
-| F2 | Mbed TLS 4.1 er PSA-baseret. Ældre Kconfig-opskrifter (`MBEDTLS_TLS_VERSION_1_2`, `KEY_EXCHANGE_*`) er deprecated eller har nye afhængigheder (`PSA_WANT_*`) | TLS-konfigurationen udarbejdes og testes særskilt i Del 5. Risiko for ekstra tid |
+| F2 | Mbed TLS 4.1 er PSA-baseret. Ældre Kconfig-opskrifter (`MBEDTLS_TLS_VERSION_1_2`, `KEY_EXCHANGE_*`) er deprecated eller har nye afhængigheder (`PSA_WANT_*`) | TLS-konfigurationen udarbejdes og testes særskilt i Del 6. Risiko for ekstra tid |
 | F3 | `CONFIG_PM=y` + logging giver linkerfejlen `undefined reference to log_const_soc` (i `soc/espressif/common/power.c`) | Workaround verificeret: `LOG_MODULE_REGISTER(soc, CONFIG_SOC_LOG_LEVEL);` i én app-fil. Indføres i Del 9 |
-| F4 | `simcom,sim7080`-bindingen kræver `mdm-power-gpios`, men modulet har ingen PWRKEY | Pladsholder-GPIO + `autostarts` (afsnit 6.4). Testes i Del 3 |
+| F4 | `simcom,sim7080`-bindingen kræver `mdm-power-gpios`, men modulet har ingen PWRKEY | Pladsholder-GPIO + `autostarts` (afsnit 6.4). Testes i Del 4 |
 | F5 | Ingen RTS/CTS mellem ESP32-C6 og modem | Risiko for tabte bytes ved 115200 baud under PPP-burst. Driverens UART-buffere (`MODEM_CELLULAR_UART_BUFFER_SIZES`) øges ved behov. Testes i Del 3 |
-| F6 | `coretemp` er `disabled` i SoC-dtsi | Aktiveres i overlay (Del 6). Driveren `esp32_temp` understøtter ESP32-C6 |
+| F6 | `coretemp` er `disabled` i SoC-dtsi | Aktiveret i overlay (Del 3). Driveren `esp32_temp` understøtter ESP32-C6 |
 | F7 | `modem_cellular` bruger CMUX (`AT+CMUX`) | Giver en AT-kanal ved siden af PPP. Den bruges til signalstyrke og PSM-kommandoer |
-| F8 | Zephyrs eksempel `samples/net/cellular_modem` | Bruges som reference til Del 3 (Kconfig for PPP, DNS, conn_mgr) |
+| F8 | Zephyrs eksempel `samples/net/cellular_modem` | Bruges som reference til Del 4 (Kconfig for PPP, DNS, conn_mgr) |
 
 ---
 

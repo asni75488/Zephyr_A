@@ -39,19 +39,37 @@ brug.
 | GPIO16 | UART0 TX (console/log) | USB-UART-bro ("UART"-porten) | 1 | Board-standard, uændret |
 | GPIO17 | UART0 RX (console/log) | USB-UART-bro ("UART"-porten) | 1 | Board-standard, uændret |
 | GPIO12 / GPIO13 | USB D- / D+ (USB Serial/JTAG) | "USB"-porten | – | Board-standard, uændret |
-| GPIO18 | UART1 TX | Modulets RX | 3 | Planlagt afvigelse (overlay i del 3). Pinctrl `UART1_TX_GPIO18` verificeret |
-| GPIO19 | UART1 RX | Modulets TX | 3 | Planlagt afvigelse (overlay i del 3). Pinctrl `UART1_RX_GPIO19` verificeret |
+| GPIO18 | UART1 TX | Modulets RX | 4 | Planlagt afvigelse (overlay i del 4). Pinctrl `UART1_TX_GPIO18` verificeret |
+| GPIO19 | UART1 RX | Modulets TX | 4 | Planlagt afvigelse (overlay i del 4). Pinctrl `UART1_RX_GPIO19` verificeret |
 | GPIO22 | `mdm-power-gpios` (pladsholder) | **Ikke forbundet** | 3 | Kræves af `simcom,sim7080`-bindingen, men modulet har ingen PWRKEY (se `02-arkitektur.md` §6.4) |
-| – | `coretemp` (intern temperatursensor) | – | 6 | `status = "okay"` i overlay (disabled i SoC-dtsi) |
-| GPIO20/21/23 | Reserveret til evt. RS485 (Modbus RTU) | – | senere | Kun hvis Modbus RTU vælges. Så flyttes console til USB Serial/JTAG |
+| – | `coretemp` (intern temperatursensor) | – | 3 | **Afvigelse:** `status = "okay"` i `app.overlay` (disabled i SoC-dtsi) |
+| GPIO20 | UART0 TX → RS485 DI | Kun Modbus RTU-variant | 3 | **Afvigelse** i `modbus-rtu.overlay` (se nedenfor) |
+| GPIO21 | UART0 RX ← RS485 RO | Kun Modbus RTU-variant | 3 | **Afvigelse** i `modbus-rtu.overlay` |
+| GPIO23 | RS485 DE + /RE (`de-gpios`) | Kun Modbus RTU-variant | 3 | **Afvigelse** i `modbus-rtu.overlay`. Fjernes ved auto-direction-moduler |
 | 5V | Forsyning | Modulets 5V | – | Se strøm-note nedenfor |
 | GND | Stel | Modulets GND | – | |
 
 GPIO18/19 er almindelige I/O-pins på header J3 (alternative funktioner SDIO/FSPICS),
-ikke strapping-pins, så de er frie til UART1. Det verificeres endeligt i del 3 mod
+ikke strapping-pins, så de er frie til UART1. Det verificeres endeligt i del 4 mod
 pinctrl-definitionerne i Zephyr 4.4.0 (`esp32c6-gpio-sigmap.h`). Makroerne findes (tjekket i del 2).
 
 UART-planen og vurderingen af console på USB Serial/JTAG står i `02-arkitektur.md` §6.
+
+## Modbus RTU-variant (`build.ps1 -ModbusRtu`)
+
+Bruger `app/modbus-rtu.overlay` ud over `app.overlay`. Afvigelser fra board-devicetree:
+
+| # | Afvigelse | Begrundelse |
+|---|---|---|
+| 1 | `zephyr,console` og `zephyr,shell-uart` → `&usb_serial` (boardets **USB**-port), `usb_serial` sat `okay` | HP-kernen har kun to UART'er: `uart1` er reserveret til modemet, så `uart0` frigøres til RS485 (`02-arkitektur.md` §6.3) |
+| 2 | `uart0` pinctrl → `uart0_rs485`: TX GPIO20, RX GPIO21 (i stedet for GPIO16/17), 9600 baud | GPIO16/17 er forbundet til USB-UART-broen. GPIO20/21 er frie pins på J3 |
+| 3 | Node `modbus0` (`zephyr,modbus-serial`) under `uart0`, `de-gpios = <&gpio0 23 GPIO_ACTIVE_HIGH>` | Zephyrs Modbus-subsystem styrer transceiverens retning: DE høj under afsendelse |
+
+Kontrolleret i det genererede `build/app/zephyr/zephyr.dts`. ROM-bootloaderen og MCUboot bruger stadig
+`uart0` på GPIO16/17 (UART-porten), indtil applikationen starter.
+
+**Transceiver:** skal være en **3,3 V**-type (MAX3485, SP3485, …). ESP32-C6's GPIO tåler ikke 5 V.
+Ledningsdiagram og test: `03-dataopsamling.md` §5.3.
 
 ## Kendte begrænsninger
 
@@ -63,4 +81,4 @@ UART-planen og vurderingen af console på USB Serial/JTAG står i `02-arkitektur
   på, at forsyningen ikke kan følge med.
 - **3,3 V-stiften på modulet** må ikke forbindes samtidig med 5 V.
 - **"Rf"** på modulet: endnu ikke afklaret om det er antennestikket eller en stift
-  (fx RI, ring indicator). Afklares i del 3.
+  (fx RI, ring indicator). Afklares i del 4.
