@@ -44,7 +44,8 @@ Sparkplug B `DDATA`-besked over MQTT/TLS via LTE-M til egen broker på Webdock-s
 | `mqtt_client.c/.h` | MQTT 3.1.1 over TLS, Last Will (NDEATH), subscribe NCMD/DCMD, publish | `mqtt` | `mqtt`, `tls_credentials`, sockets, `k_mem_slab` |
 | `network.c/.h` | Cellulær forbindelse: modem power, registrering, PPP, tilstandsmaskine | `network` | `modem_cellular`, `pm_device`, `net_mgmt`, `conn_mgr`, `k_event` |
 | `security.c/.h` | Del 8: sikkerhedsstatus fra eFuses (secure boot, flash encryption, JTAG, download mode), SAR ADC-entropi til RNG'en. Status logges og sendes i NBIRTH (`Properties/Security`) | ingen (bibliotek, init i `main`) | `esp_efuse`, `efuse_hal`, `soc_random` |
-| `power.c/.h` | Sleep-politik: lås/tillad light sleep, deep sleep + LP-core-wake | ingen (bibliotek) | `pm`, `pm_policy_state_lock` |
+| `power.c/.h` | Sleep-politik: lås/tillad light sleep, LP-kernens delte hukommelse (heartbeat, supervisor), deep sleep med LP-vækning, tjek af LP-billedet (Del 9) | ingen (bibliotek) | `pm`, `pm_policy_state_lock`, `sys_poweroff`, ULP, PSA SHA-256 |
+| `uplink.c/.h` | Del 9: interval-uplink (modem kun tændt under en uplink, NDEATH + ren DISCONNECT) | `uplink` (kun interval-tilstand) | `k_event` |
 | `app_types.h` | Fælles datatyper (`struct measurement`, `channel_value`, `measurement_batch`, `app_cmd`, `app_config`) | – | – |
 
 Funktionerne i modulerne `sensor`, `modbus`, `mqtt_client` og `power` har præfiks (`app_sensor_`,
@@ -160,7 +161,8 @@ Zephyr: **lavere tal = højere prioritet**. Prioriteter ≥ 0 er *preemptive*, n
 | `network` | network | 5 | preemptive | 2048 B | Event (net_mgmt-callbacks → `k_event`) | Skal hurtigt reagere på link op/ned, men laver kun lidt arbejde selv – driveren gør det tunge |
 | `mqtt` | mqtt_client | 6 | preemptive | 8192 B (Del 6) | Event (`zsock_poll` på TLS-socket + eventfd, der signaleres af TX-køen og link-tab, timeout = keep-alive) | TLS-handshake i Mbed TLS bruger meget stack. Under network, så link-hændelser behandles først. Se `06-mqtt-tls.md` |
 | `app_logic` | app_logic | 7 | preemptive | 1536 B | Event (`k_poll` på sample- og kommando-kø) | Tidskritisk er kun at kø'en tømmes, før den er fuld (16 pladser = 160 s) |
-| `sparkplug` | sparkplug | 8 | preemptive | 4096 B (Del 7) | Event (`k_poll` på batch- og RX-kø) | Protobuf-encoding er CPU-arbejde uden deadline. Lavest, så den aldrig forsinker målinger eller netværk |
+| `sparkplug` | sparkplug | 8 | preemptive | 4096 B (Del 7) | Event (`k_poll` på batch- og RX-kø) | Protobuf-encoding er CPU-arbejde uden deadline. Lavt, så den aldrig forsinker målinger eller netværk |
+| `uplink` | uplink | 9 | preemptive | 1536 B (Del 9) | Event (`k_event` fra app_logic/sparkplug, timeout til næste uplink) | Kun i interval-tilstand. Planlægger kun og venter, derfor lavest |
 | `main` | main | 0 | preemptive | 2048 B | Kun opstart | Initialiserer og starter trådene, kører derefter heartbeat (fjernes, når alle moduler er implementeret) |
 
 **Ingen cooperative app-tråde.** En cooperative tråd kan ikke afbrydes af andre tråde. Alle
@@ -408,7 +410,7 @@ kommer til.
 | Modem `mdm-power-gpios` | GPIO (pladsholder) | GPIO22, **ikke forbundet** | 3 | Se 6.4 |
 | Intern temperatur | `coretemp` (`espressif,esp32-temp`) | – | 6 | Skal sættes `status = "okay"` (disabled som standard) |
 | Modbus RTU (RS485) – hvis valgt | `uart0` flyttes (se 6.3) eller `lp_uart` | fx GPIO20 TX, GPIO21 RX, GPIO23 DE/RE | senere | Afventer valg af Modbus-kilde |
-| LP-kerne | `lp_uart` / LP-GPIO | GPIO0–7 er LP-pins | 9 | |
+| LP-kerne | ingen pins (Del 9: `lp_uart` slået fra, kun LP-timer og delt LP-SRAM) | GPIO0–7 er LP-pins, fortsat frie | 9 | ✔ |
 | Reserveret | – | GPIO8 (RGB-LED, strap), GPIO9 (BOOT, strap), GPIO15 (strap), GPIO4/5 (MTMS/MTDI strap) | – | Undgås til eksterne signaler |
 
 ### 6.3 Vurdering: skal console flyttes til USB Serial/JTAG?
@@ -476,7 +478,7 @@ suspend) og PSM. Fuld sluk kræver en load-switch i 5 V-forsyningen. Det er en m
 
 ## 7. Strategi for lavt strøm- og dataforbrug (overordnet)
 
-Detaljer, målinger og tuning kommer i Del 9. Her er principperne, som arkitekturen er bygget til.
+Implementeret i Del 9, se [09-strom-data.md](09-strom-data.md). Her er principperne, som arkitekturen er bygget til.
 
 ### 7.1 Strøm
 
@@ -523,12 +525,12 @@ overhead betalt 6 gange, og forbruget er cirka 4 gange større.
 | Group id | `ProjektA` |
 | Edge node id | `device_info_id()`, fx `esp32c6-14c19fe0ab24` |
 | Device id | `sensors` (boardets egne sensorer, inkl. Modbus-kanaler) |
-| NBIRTH | `bdSeq`, `Node Control/Rebirth` (1), `Node Control/Reboot` (2), `Properties/FW Version` (3), `Properties/Reset Cause` (4), `Config/Sample Interval` (5), `Config/Batch Size` (6), `Status/RSSI` (7), `Status/Uptime` (8), `Status/MQTT Connects` (9) |
+| NBIRTH | `bdSeq`, `Node Control/Rebirth` (1), `Node Control/Reboot` (2), `Properties/FW Version` (3), `Properties/Reset Cause` (4), `Config/Sample Interval` (5), `Config/Batch Size` (6), `Status/RSSI` (7), `Status/Uptime` (8), `Status/MQTT Connects` (9), `Properties/Security` (10, Del 8), `Node Control/Sleep` (11, Del 9) |
 | DBIRTH | `Temperature/Die` (alias 100, **Float, °C**) + Modbus-kanaler (alias 100 + kanal) |
 | DDATA | batch: alias + UTC-timestamp + Float-værdi pr. måling (dårlig kvalitet → `is_null`) |
 | NDATA | Config-metrics efter en ændring, Status-metrics hvert 15. minut |
 | NDEATH | MQTT Last Will med samme `bdSeq` som NBIRTH. Sendes også selv før en reboot |
-| NCMD | `Node Control/Rebirth`, `Node Control/Reboot`, `Config/Sample Interval`, `Config/Batch Size` |
+| NCMD | `Node Control/Rebirth`, `Node Control/Reboot`, `Node Control/Sleep` (Del 9), `Config/Sample Interval`, `Config/Batch Size` |
 | seq | 0–255, ny værdi pr. besked, NBIRTH = 0 |
 
 > Ændret i forhold til Del 2: værdierne sendes som **Float i °C** (ikke Int32 i m°C), så
@@ -551,7 +553,7 @@ Prototypen brugte 274 kB flash (6,5 %) og 104 kB RAM (20 %) uden TLS.
 |---|---|---|
 | F1 | Zephyr 4.4.0 bruger **Mbed TLS 4.1**, som kræver west-modulet `tf-psa-crypto` | Manglede i Del 1's `west.yml`. **Tilføjet i denne del.** Kør `west update` |
 | F2 | Mbed TLS 4.1 er PSA-baseret. Ældre Kconfig-opskrifter (`MBEDTLS_TLS_VERSION_1_2`, `KEY_EXCHANGE_*`) er deprecated eller har nye afhængigheder (`PSA_WANT_*`) | TLS-konfigurationen udarbejdes og testes særskilt i Del 6. Risiko for ekstra tid |
-| F3 | `CONFIG_PM=y` + logging giver linkerfejlen `undefined reference to log_const_soc` (i `soc/espressif/common/power.c`) | Workaround verificeret: `LOG_MODULE_REGISTER(soc, CONFIG_SOC_LOG_LEVEL);` i én app-fil. Indføres i Del 9 |
+| F3 | `CONFIG_PM=y` + logging giver linkerfejlen `undefined reference to log_const_soc` (i `soc/espressif/common/power.c`) | Workaround verificeret: `LOG_MODULE_REGISTER(soc, CONFIG_SOC_LOG_LEVEL);` i én app-fil. Indført i Del 9 (`src/soc_log.c`) |
 | F4 | `simcom,sim7080`-bindingen kræver `mdm-power-gpios`, men modulet har ingen PWRKEY | Pladsholder-GPIO + `autostarts` (afsnit 6.4). Testes i Del 4 |
 | F5 | Ingen RTS/CTS mellem ESP32-C6 og modem | Risiko for tabte bytes ved 115200 baud under PPP-burst. Driverens UART-buffere (`MODEM_CELLULAR_UART_BUFFER_SIZES`) øges ved behov. Testes i Del 3 |
 | F6 | `coretemp` er `disabled` i SoC-dtsi | Aktiveret i overlay (Del 3). Driveren `esp32_temp` understøtter ESP32-C6 |

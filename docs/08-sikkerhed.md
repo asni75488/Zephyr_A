@@ -124,7 +124,7 @@ requirement). ✅ implementeret og testet · 🟡 delvist · ⬜ mangler · ➖ 
 | **CR 6.2** Kontinuerlig overvågning | NDEATH (Will) ved tab, `Status/*` hvert 15. min, `Status/MQTT Connects` | Del 7 | 🟡 |
 | **CR 7.1** DoS-beskyttelse | Reboot-spærring, backoff med jitter, faste køer, permanente fejl → maks. backoff | native_sim scenarie 1b | ✅ |
 | **CR 7.2** Ressourcestyring | Statisk allokering, afgrænsede køer, målt heap og stack | Del 6/7 | ✅ |
-| **CR 7.4** Gendannelse | Genforbindelse automatisk. Watchdog mangler | Del 9/10 | 🟡 |
+| **CR 7.4** Gendannelse | Genforbindelse automatisk. **Del 9:** LP-kernen nulstiller HP-kernen, hvis målekæden står stille i 120 s (`09-strom-data.md` §3). Task watchdog for alle tråde mangler | Del 9 unittest 7/7, Del 10 | 🟡 |
 | **CR 7.7** Mindst mulig funktionalitet | Ingen shell. Release-variant. Kun nødvendige porte. Ingen Wi-Fi/BT | `overlay-release.conf`, `20-firewall.sh` | ✅ |
 | **CR 7.8** Komponentinventar | `Properties/FW Version` + `Properties/Security` i NBIRTH. SBOM (SPDX) | `-Sbom` | ✅ |
 
@@ -255,9 +255,10 @@ RAM. Efter hærdning viser loggen `SECURITY: hardened device (sb=1 fe=1 jtag=0 �
 | `BOOT_VALIDATE_SLOT0` er ikke Espressifs standard | Ikke testet på hardware endnu. Boot bliver ca. 0,1–0,3 s længere | Hardwaretest §6.1. Måles i Del 9. Kan slås fra i `app/sysbuild/mcuboot.conf` |
 | SAR ADC-entropi kører hele tiden | Lidt ekstra strømforbrug | Måles i Del 9 (evt. kun tændt omkring TLS-handshakes) |
 | SNTP uautentificeret | Se §2 | Accepteret (NTS findes ikke i Zephyr 4.4) |
+| LP-billedet (Del 9) er ikke dækket af MCUboots signatur | HP-billedet tjekker LP-billedets SHA-256 ved boot og stopper LP-kernen ved afvigelse, men LP-kernen har kørt < 1 s | Secure boot (§7) |
 | Mosquitto uden låsning efter fejlede logins | Password-gætning mod 8883 er mulig (12+ tegn gør det upraktisk) | fail2ban på serveren (Del 10) |
 | Én fælles Node-RED-konto | Kan ikke se, hvem der sendte en kommando | Flere brugere i `adminAuth` (Del 10) |
-| Ingen watchdog | Hænger en tråd, genstarter enheden ikke selv | Del 9/10 |
+| Ingen task watchdog | Del 9: LP-kernen overvåger målekæden. En hængende `mqtt`-tråd opdages ikke | Del 10 |
 | `Properties/Security` er en selvrapportering | En kompromitteret firmware kan lyve | Med secure boot er firmwaren selv verificeret |
 
 ## 9. Definition of done

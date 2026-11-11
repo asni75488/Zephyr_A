@@ -11,12 +11,39 @@ Opdateres i slutningen af hver del. Detaljeret kravstatus: [02-kravmatrix.md](02
 | 5 | Cloud-server (Webdock: SSH, Mosquitto, Let's Encrypt, Node-RED) | `del-05-cloud` | Færdig – **ikke kørt på VPS endnu** (bruger gik videre til Del 6) |
 | 6 | MQTT + TLS (Mbed TLS 4.1/PSA) | `del-06-mqtt-tls` | Færdig – testet på native_sim, **ikke på hardware endnu** |
 | 7 | Sparkplug B + tidssynkronisering | `del-07-sparkplug` | Færdig – testet på native_sim, **ikke på hardware endnu** (bruger gik videre til Del 8) |
-| 8 | Sikkerhed: IEC 62443-4-2 / CRA, signeret firmware | `del-08-sikkerhed` | Færdig – testet på native_sim og med `imgtool`, afventer hardwaretest og godkendelse |
-| 9 | Lavt strøm- og dataforbrug, LP-kerne (`remote/`) | – | Ikke startet |
-| 10 | Nice to have (dashboard, mTLS, OTA, fail2ban, watchdog) | – | Ikke startet |
+| 8 | Sikkerhed: IEC 62443-4-2 / CRA, signeret firmware | `del-08-sikkerhed` | Færdig – testet på native_sim og med `imgtool`, **ikke på hardware endnu** (bruger gik videre til Del 9) |
+| 9 | Lavt strøm- og dataforbrug, LP-kerne (`remote/`) | `del-09-strom` | Færdig – testet på native_sim (91/91 + LP-unittest 7/7), afventer hardwaretest, strømmåling og godkendelse |
+| 10 | Nice to have (dashboard, mTLS, OTA, fail2ban, task watchdog, TLS-genoptagelse) | – | Ikke startet |
 | 11 | Afslutning: test, memory layout, rapportmateriale | – | Ikke startet |
 
 Delene blev omnummereret i Del 3 (dataopsamling før netværk).
+
+## Del 9 – lavet
+
+- **LP-kernen** (`app/remote/`, sysbuild-image `zephyr_a_lpcore`, 1577 B): kører hvert sekund, vækker HP-kernen fra
+  deep sleep og nulstiller den, hvis målekæden står stille i 120 s (supervisor). Delt hukommelse og logik i
+  `app/common/lp_shared.h`. Det signerede HP-billede tjekker LP-billedets SHA-256 ved boot
+- **Light sleep** (`CONFIG_PM`, RTC-timer som vækkekilde), låst mens modem-UART eller en måling er aktiv
+- **Interval-uplink** (`uplink.c`, `build.ps1 -LowPower`): modem kun tændt under en uplink hvert 30. min (eller ved ¾
+  fuld kø), NDEATH + ren MQTT DISCONNECT, data med `is_historical`, batch 12. Continuous er stadig standard
+- Modem: `AT+CFUN=0` når linket stoppes, `AT+CPSMS=0` (ingen PWRKEY), eDRX valgfri (`APP_MODEM_EDRX`)
+- NCMD `Node Control/Sleep` (alias 11): deep sleep 60 s–24 t, LP-kernen vækker. Reset Cause `lp-core supervisor`
+- Node-RED: kommandoer til offline noder sættes i kø og sendes ved næste NBIRTH, ny knap "Deep sleep 10 min"
+- Workaround F3 (`soc_log.c`). `docs/09-strom-data.md`. VERSION 0.9.0-del09
+
+### Verificeret
+
+- Builds uden nye warnings: standard (3 images, FLASH 10,45 %, RAM 41,4 %), `-LowPower` (RAM 44,6 %)
+- `app/tests/lp_supervisor` (ztest): **7/7**
+- native_sim mod Mosquitto 2.0.18: **91/91** (inkl. interval-forløbet: én NDEATH pr. session med samme bdSeq som
+  NBIRTH, kun rene disconnects hos brokeren, tidlig uplink, historiske data i tidsorden, NCMD Sleep afvist uden LP)
+- Målt med byte-tællende proxy: fast pris pr. uplink ca. 0,8 kB op + 3,9 kB ned (TLS)
+- `ncmd.test.js` (kø) og `decode.test.js` bestået. `build.ps1` parser fejlfrit
+
+### Mangler (hardware)
+
+- [ ] Del 9-tjeklisten i `09-strom-data.md` §9, især strømmålingen (§6.3) og Onomondo-forbruget
+- [ ] Del 3–8 på hardware/VPS
 
 ## Del 8 – lavet
 
