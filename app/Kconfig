@@ -150,6 +150,63 @@ config APP_SPARKPLUG_DEVICE_ID
 
 endmenu
 
+menu "Cellular network"
+
+config APP_NET_AUTOSTART
+	bool "Bring the cellular link up automatically at boot"
+	default y
+
+config APP_NET_CONNECT_TIMEOUT_S
+	int "Max time from modem start to a working IP link [s]"
+	default 180
+	help
+	  Covers modem start-up, network search/registration (first
+	  registration on LTE-M can take minutes), PPP and DNS. After the
+	  timeout the modem is restarted with backoff.
+
+config APP_NET_RECONNECT_GRACE_S
+	int "Time the driver gets to re-establish a lost link before a restart [s]"
+	default 60
+
+config APP_NET_BACKOFF_MIN_S
+	int "First backoff delay before restarting the modem [s]"
+	default 30
+
+config APP_NET_BACKOFF_MAX_S
+	int "Max backoff delay [s] (delay doubles after each failure)"
+	default 900
+
+config APP_NET_STATUS_INTERVAL_S
+	int "Interval for the periodic network status log while connected [s]"
+	default 60
+
+config APP_NET_CHECK_HOST
+	string "Host used for the connectivity check (DNS lookup)"
+	default APP_MQTT_BROKER_HOST
+	help
+	  After PPP is up the host name is resolved with DNS. This proves
+	  that IP and DNS through the operator work.
+
+config APP_NET_CHECK_PORT
+	int "TCP port for the connectivity check (0 = DNS only)"
+	default 80
+	help
+	  A TCP connect to this port of APP_NET_CHECK_HOST proves end-to-end
+	  IP to the own server. 80 = nginx on the Webdock LEMP image. A
+	  failed TCP connect is logged as a warning only (e.g. firewall).
+
+config APP_NET_CMUX_RECOVERY
+	bool "Send a CMUX close-down frame before starting the modem"
+	default y
+	help
+	  The modem keeps its 5 V supply when the ESP32-C6 is reset (e.g. by
+	  flashing) and may still be in CMUX mode. It then does not answer
+	  plain AT commands and the driver's init script fails forever,
+	  because the module has no PWRKEY/RESET pin. A 3GPP TS 27.010 CLD
+	  frame returns it to AT command mode; in AT mode it is ignored.
+
+endmenu
+
 menu "Cloud / MQTT"
 
 config APP_MQTT_BROKER_HOST
