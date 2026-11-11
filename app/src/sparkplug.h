@@ -12,10 +12,11 @@
  *   group_id = CONFIG_APP_SPARKPLUG_GROUP_ID, edge_node_id = device_info_id(),
  *   device_id = CONFIG_APP_SPARKPLUG_DEVICE_ID
  *
- * Owner thread: "sparkplug" (event-driven: k_poll on the batch queue and the
- * RX queue). Input: sparkplug_submit_batch() (from app_logic),
- * sparkplug_submit_rx() (from mqtt). Output: app_mqtt_submit(),
- * app_logic_submit_command().
+ * Owner thread: "sparkplug" (event-driven: k_poll on the batch queue, the
+ * RX queue and a signal for session/config events; timeout = next status
+ * NDATA). Input: sparkplug_submit_batch() (app_logic), sparkplug_submit_rx(),
+ * sparkplug_on_connected/disconnected() (mqtt), sparkplug_notify_config_changed()
+ * (app_logic). Output: app_mqtt_submit(), app_logic_submit_command().
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -72,6 +73,15 @@ int sparkplug_encode_ndeath(uint8_t *buf, size_t size);
  * (seq restarts at 0, NBIRTH carries the same bdSeq as the will).
  */
 void sparkplug_on_connected(void);
+
+/**
+ * @brief Notify that the MQTT session ended. Batches are kept in the queue
+ * (not encoded) until the BIRTH of the next session.
+ */
+void sparkplug_on_disconnected(void);
+
+/** @brief Configuration changed (app_logic): publish the Config metrics as NDATA. */
+void sparkplug_notify_config_changed(void);
 
 /**
  * @brief Queue a batch of samples to be sent as one DDATA (from app_logic).

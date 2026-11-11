@@ -26,7 +26,7 @@ extern "C" {
 #define APP_CHANNEL_DIE_TEMP     0
 #define APP_CHANNEL_MODBUS_FIRST 1
 
-/** Quality of one value (mapped to Sparkplug quality in part 7). */
+/** Quality of one value. Sparkplug (part 7): GOOD -> value, BAD/STALE -> is_null. */
 enum value_quality {
 	QUALITY_GOOD = 0, /**< value read successfully                          */
 	QUALITY_BAD,      /**< read failed (timeout, CRC, exception, driver)    */

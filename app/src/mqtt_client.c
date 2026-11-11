@@ -51,15 +51,12 @@
 #if defined(CONFIG_MBEDTLS_MEMORY_DEBUG)
 #include <mbedtls/memory_buffer_alloc.h>
 #endif
-#if defined(CONFIG_APP_MQTT_SELFTEST)
-#include "mqtt_selftest.h"
-#endif
 
 LOG_MODULE_REGISTER(app_mqtt, CONFIG_APP_LOG_LEVEL);
 
 /* MQTT packet buffers. TX holds the fixed header + topic of a PUBLISH (the
  * payload is sent from the slab block with a second iovec) and the whole
- * CONNECT (client id, user, password, will topic + NDEATH payload).
+ * CONNECT (client id, user, password, will topic + NDEATH payload, ~25 B).
  * RX holds incoming packet headers; PUBLISH payloads are read separately.
  */
 #define MQTT_TX_BUF_SIZE 384
@@ -625,6 +622,29 @@ static int drain_tx_queue(void)
 	return 0;
 }
 
+/*
+ * Messages still queued from the previous session belong to it (Sparkplug
+ * seq numbers, DATA before the new BIRTH): drop them before the new BIRTH.
+ * sparkplug only encodes while a session is up, so this is at most what was
+ * queued in the moment the connection broke.
+ */
+static void discard_stale_tx(void)
+{
+	struct app_mqtt_msg msg;
+	uint32_t n = 0;
+
+	while (k_msgq_get(&mqtt_tx_q, &msg, K_NO_WAIT) == 0) {
+		app_mqtt_free(msg.payload);
+		n++;
+	}
+	if (n > 0U) {
+		K_SPINLOCK(&stats_lock) {
+			stats.tx_dropped += n;
+		}
+		LOG_WRN("Discarded %u message(s) from the previous session", n);
+	}
+}
+
 /** Poll timeout [ms]: until keep-alive is due or the PINGRESP deadline. */
 static int poll_timeout_ms(void)
 {
@@ -752,11 +772,10 @@ static void mqtt_thread(void *p1, void *p2, void *p3)
 		if (ret == 0) {
 			set_state(APP_MQTT_STATE_CONNECTED);
 			connected_at = k_uptime_get();
+			discard_stale_tx();
 			sparkplug_on_connected();
-#if defined(CONFIG_APP_MQTT_SELFTEST)
-			mqtt_selftest_on_connected();
-#endif
 			ret = session_run();
+			sparkplug_on_disconnected();
 			LOG_INF("Session ended after %u s (%d)",
 				(unsigned int)((k_uptime_get() - connected_at) / 1000), ret);
 		}
@@ -825,9 +844,6 @@ int app_mqtt_start(void)
 	}
 	k_thread_name_set(mqtt_tid, "mqtt");
 	k_thread_start(mqtt_tid);
-#if defined(CONFIG_APP_MQTT_SELFTEST)
-	mqtt_selftest_start();
-#endif
 	return 0;
 }
 

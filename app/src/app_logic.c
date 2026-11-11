@@ -1,6 +1,6 @@
 /*
- * Zephyr_A - app_logic: batching and commands (part 3: measurements and
- * batching; batches go to sparkplug from part 7).
+ * Zephyr_A - app_logic: batching and commands (part 3), batches go to
+ * sparkplug and configuration commands come from NCMD (part 7).
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -103,16 +103,17 @@ static void handle_measurement(const struct measurement *m, uint8_t batch_size)
 
 	int ret = sparkplug_submit_batch(&batch, K_NO_WAIT);
 
-	if (ret == -ENOSYS) {
-		LOG_DBG("sparkplug not implemented yet (part 7) - batch discarded");
-	} else if (ret != 0) {
-		LOG_WRN("Batch #%u not accepted by sparkplug (%d)", batches_done, ret);
+	if (ret != 0) {
+		/* Queue full: MQTT has been down for longer than the queue covers */
+		LOG_WRN("Batch #%u dropped - sparkplug queue full (MQTT down?)", batches_done);
 	}
 	batch.count = 0;
 }
 
 static void handle_command(const struct app_cmd *cmd)
 {
+	bool changed = false;
+
 	k_mutex_lock(&config_lock, K_FOREVER);
 
 	switch (cmd->type) {
@@ -124,6 +125,7 @@ static void handle_command(const struct app_cmd *cmd)
 			config.sample_interval_ms = (uint32_t)cmd->value;
 			LOG_INF("Sample interval set to %u ms", config.sample_interval_ms);
 			app_sensor_trigger(); /* sensor re-reads config and restarts timer */
+			changed = true;
 		}
 		break;
 	case APP_CMD_SET_BATCH_SIZE:
@@ -133,11 +135,13 @@ static void handle_command(const struct app_cmd *cmd)
 		} else {
 			config.batch_size = (uint8_t)cmd->value;
 			LOG_INF("Batch size set to %u", config.batch_size);
+			changed = true;
 		}
 		break;
 	case APP_CMD_REBIRTH:
 	case APP_CMD_REBOOT:
-		LOG_WRN("Command %u not implemented yet", cmd->type);
+		/* Session commands are executed by sparkplug itself */
+		LOG_DBG("Command %u handled by sparkplug", cmd->type);
 		break;
 	default:
 		LOG_ERR("Unknown command %u", cmd->type);
@@ -145,6 +149,10 @@ static void handle_command(const struct app_cmd *cmd)
 	}
 
 	k_mutex_unlock(&config_lock);
+
+	if (changed) {
+		sparkplug_notify_config_changed(); /* report the new value (NDATA) */
+	}
 }
 
 static void app_logic_thread(void *p1, void *p2, void *p3)

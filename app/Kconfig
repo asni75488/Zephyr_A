@@ -144,6 +144,20 @@ config APP_SPARKPLUG_GROUP_ID
 	  Topic: spBv1.0/<group_id>/<msg_type>/<edge_node_id>[/<device_id>].
 	  The edge node id is derived from the hardware id (device_info).
 
+config APP_SPARKPLUG_BATCH_QUEUE_LEN
+	int "Batches waiting for the MQTT session (app_logic -> sparkplug)"
+	default 4
+	help
+	  While MQTT is down, batches are kept here (not encoded) and sent
+	  after the next BIRTH. 4 x 6 x 10 s = 4 minutes of data. Each slot is
+	  one struct measurement_batch (~680 B).
+
+config APP_SPARKPLUG_STATUS_INTERVAL_S
+	int "NDATA with Status/RSSI, Status/Uptime, Status/MQTT Connects every N s (0 = never)"
+	default 900
+	help
+	  About 60 B every 15 minutes. The same metrics are always in NBIRTH.
+
 config APP_SPARKPLUG_DEVICE_ID
 	string "Sparkplug device id for the on-board sensors"
 	default "sensors"
@@ -204,6 +218,32 @@ config APP_NET_CMUX_RECOVERY
 	  plain AT commands and the driver's init script fails forever,
 	  because the module has no PWRKEY/RESET pin. A 3GPP TS 27.010 CLD
 	  frame returns it to AT command mode; in AT mode it is ignored.
+
+endmenu
+
+menu "Time synchronisation (SNTP)"
+
+config APP_TIMESYNC_SERVER1
+	string "First SNTP server (host[:port])"
+	default "pool.ntp.org"
+
+config APP_TIMESYNC_SERVER2
+	string "Second SNTP server, tried if the first fails (empty = none)"
+	default "time.cloudflare.com"
+
+config APP_TIMESYNC_TIMEOUT_MS
+	int "Timeout per SNTP request [ms]"
+	default 4000
+	help
+	  One UDP request/response (96 B in total) over LTE-M. A cold radio
+	  link can need more than one second for the first packet.
+
+config APP_TIMESYNC_RESYNC_H
+	int "Resynchronise every N hours (0 = only at start-up)"
+	default 24
+	help
+	  The ESP32-C6 crystal drifts by a few seconds per day at most, so one
+	  SNTP request per day (96 B) is enough for 1-second timestamps.
 
 endmenu
 
@@ -285,20 +325,6 @@ config APP_MQTT_TLS_SEC_TAG_BASE
 	help
 	  Each trusted root CA (app/ca/*.der) gets its own tag, starting here.
 
-config APP_MQTT_SELFTEST
-	bool "Publish a self-test NDATA message (part 6, replaced by Sparkplug in part 7)"
-	default y
-	help
-	  Publishes a small hand-encoded Sparkplug B NDATA with the metrics
-	  Test/Uptime and Test/RSSI right after each connect and then every
-	  APP_MQTT_SELFTEST_INTERVAL_S. Proves the whole chain device ->
-	  TLS -> Mosquitto -> Node-RED before the real Sparkplug module exists.
-
-config APP_MQTT_SELFTEST_INTERVAL_S
-	int "Self-test publish interval [s]"
-	depends on APP_MQTT_SELFTEST
-	default 60
-
 endmenu
 
 menu "Threads"
@@ -345,9 +371,10 @@ config APP_SPARKPLUG_THREAD_PRIO
 
 config APP_SPARKPLUG_THREAD_STACK
 	int "Sparkplug thread stack size"
-	default 3072
+	default 4096
 	help
-	  nanopb encoding of a batch with up to APP_BATCH_MAX metrics.
+	  nanopb encoding (one Metric struct of 148 B at a time, callbacks) and
+	  the index list of a batch (up to 48 values).
 
 endmenu
 
