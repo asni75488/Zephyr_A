@@ -6,8 +6,8 @@ Opdateres i slutningen af hver del. Detaljeret kravstatus: [02-kravmatrix.md](02
 |---|---|---|---|
 | 1 | Udviklingsmiljø Windows 11 + repo-skelet | `del-01-setup` | ✅ Godkendt |
 | 2 | Design: arkitektur, tråde, IPC, pin-plan, kravmatrix, modul-skelet | `del-02-design` | ✅ Godkendt |
-| 3 | Dataopsamling: intern temperatursensor, Modbus RTU, simulering | `del-03-dataopsamling` | Færdig – afventer test og godkendelse |
-| 4 | Cellulært netværk (SIM7080G, CMUX, PPP) | – | Ikke startet |
+| 3 | Dataopsamling: intern temperatursensor, Modbus RTU, simulering | `del-03-dataopsamling` | Færdig – **ikke testet på hardware endnu** (bruger gik videre til Del 4) |
+| 4 | Cellulært netværk (SIM7080G, CMUX, PPP) | `del-04-netvaerk` | Færdig – afventer test og godkendelse |
 | 5 | Cloud-server (Webdock: SSH, Mosquitto, Let's Encrypt, Node-RED) | – | Ikke startet |
 | 6 | MQTT + TLS (Mbed TLS 4.1/PSA) | – | Ikke startet |
 | 7 | Sparkplug B (nanopb) + tidssynkronisering (UTC-tidsstempler) | – | Ikke startet |
@@ -17,6 +17,35 @@ Opdateres i slutningen af hver del. Detaljeret kravstatus: [02-kravmatrix.md](02
 | 11 | Afslutning: test, memory layout, rapportmateriale | – | Ikke startet |
 
 Delene blev omnummereret i Del 3 (dataopsamling før netværk).
+
+## Del 4 – lavet
+
+- `app.overlay`: `uart1` på GPIO18/19 (115200), modem-node `simcom,sim7080` med `autostarts`, `mdm-power-gpios`-pladsholder
+  GPIO22 (ikke forbundet), alias `modem`
+- `prj.conf`: `modem_cellular`, APN `onomondo`, dedikeret modem-workqueue, PPP, IPv4/TCP/UDP, sockets, DNS (2 servere,
+  10 s timeout), connection manager, heap 4 kB til `getaddrinfo`
+- `network.c`: tråd med tilstandsmaskine (off → starting → registering → ppp-up → connected, backoff 30 s … 15 min),
+  net_mgmt- og cellular-callbacks → `k_event`, log af alle tilstandsskift, registrering, IP, modem-info, RSSI hvert
+  60. s, forbindelsestjek (DNS + TCP :80 til `zephyra.vps.webdock.cloud`), offentlige events `NETWORK_EVT_UP/DOWN`
+- CMUX-recovery: CLD-ramme før modemstart, fordi modemet beholder strømmen ved ESP-reset og ellers kan hænge i CMUX
+- `build.ps1 -ModemDebug` (`overlay-modem-debug.conf`): shell med `modem at AT...`, `net iface`, `net dns query`,
+  debug-log fra CMUX/PPP
+- `docs/04-netvaerk.md`: design, fund i driveren, konfiguration, test og fejlsøgning
+- **Rettelse:** Del 3 havde ved en fejl fjernet Projekt A-, nice-to-have-, out-of-scope- og procesafsnittene fra
+  `02-kravmatrix.md`. De er genskabt og opdateret
+
+### Verificeret
+
+- Bygger uden compiler-warnings: standard (FLASH 5,1 %, RAM 20,3 %), `-ModemDebug`, `-ModbusRtu` og `-ModbusRtu -Simulation`
+- Devicetree kontrolleret i `zephyr.dts` (uart1-pins, modem-node med `autostarts` og GPIO22)
+- Driverens opførsel uden PWRKEY gennemgået i `modem_cellular.c` (autostarts, suspend, init-fejl)
+- CMUX CLD-rammens FCS-algoritme verificeret mod referencerammer
+- Fundet og rettet før test: `HEAP_MEM_POOL_SIZE=0` ville få alle DNS-opslag til at fejle
+
+### Mangler (test på hardware)
+
+- [ ] Del 4-tjeklisten i `04-netvaerk.md` §5.4 (IP, DNS, TCP, status-log, RESET-recovery, antenne af/på, ingen brownout)
+- [ ] Del 3-tests (`03-dataopsamling.md` §5.1–5.2), der ikke er kørt endnu
 
 ## Del 3 – lavet
 
@@ -54,8 +83,8 @@ Delene blev omnummereret i Del 3 (dataopsamling før netværk).
 - **`CONFIG_PM` + logging:** linkerfejl `log_const_soc` i Zephyr 4.4.0. Workaround verificeret
   (registrér log-modulet `soc` i app'en). Indføres i del 9.
 - **Modem uden PWRKEY:** `simcom,sim7080` kræver `mdm-power-gpios`. Pladsholder på GPIO22
-  (uforbundet) + `autostarts`. Testes i del 4.
-- **Ingen RTS/CTS** til modemet: risiko for tabte bytes under PPP. Testes i del 4.
+  (uforbundet) + `autostarts`, og CMUX-recovery før start. Testes på hardware.
+- **Ingen RTS/CTS** til modemet: risiko for tabte bytes under PPP. Holdes øje med i hardwaretesten.
 - Sysbuild giver en harmløs Kconfig-warning om `MCUBOOT_UPDATE_FOOTER_SIZE` (kun relevant for OTA).
 - Modbus RTU-varianten flytter console til USB-porten (USB Serial/JTAG). Den rigtige Modbus-kilde/slave er
   stadig ikke kendt. Registertabellen i `modbus.c` er et eksempel (holding 0–1, 0,1-skalering).
