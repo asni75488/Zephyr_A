@@ -480,7 +480,7 @@ static int wait_connack(void)
 	}
 
 	if (connack_rc != MQTT_CONNECTION_ACCEPTED) {
-		LOG_ERR("CONNACK: %s (%d)", connack_str(connack_rc), connack_rc);
+		LOG_ERR("SECURITY: CONNACK: %s (%d)", connack_str(connack_rc), connack_rc);
 		return ((connack_rc == MQTT_BAD_USER_NAME_OR_PASSWORD) ||
 			(connack_rc == MQTT_NOT_AUTHORIZED)) ? -EACCES : -ECONNREFUSED;
 	}
@@ -532,7 +532,7 @@ static int session_connect(void)
 	ret = mqtt_connect(&client); /* TCP connect + TLS handshake + CONNECT */
 	if (ret != 0) {
 		if (ret == -ECONNABORTED) {
-			LOG_ERR("TLS handshake failed - see 'TLS handshake error' above "
+			LOG_ERR("SECURITY: TLS handshake failed - see 'TLS handshake error' above "
 				"(-0x2700 = certificate not trusted, wrong host name or "
 				"Mbed TLS heap too small)");
 		} else {

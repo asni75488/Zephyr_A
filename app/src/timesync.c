@@ -73,7 +73,7 @@ static int query(const char *server, uint32_t timeout_ms, int64_t *utc_ms, int64
 		return ret;
 	}
 	if (ts.seconds < MIN_VALID_UTC_S) {
-		LOG_ERR("SNTP %s: implausible time %llu s - rejected", server,
+		LOG_ERR("SECURITY: SNTP %s: implausible time %llu s - rejected", server,
 			(unsigned long long)ts.seconds);
 		return -EBADMSG;
 	}

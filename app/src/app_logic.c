@@ -119,8 +119,8 @@ static void handle_command(const struct app_cmd *cmd)
 	switch (cmd->type) {
 	case APP_CMD_SET_SAMPLE_INTERVAL:
 		if ((cmd->value < MIN_INTERVAL_MS) || (cmd->value > MAX_INTERVAL_MS)) {
-			LOG_ERR("Rejected sample interval %lld ms (allowed %u-%u)", cmd->value,
-				MIN_INTERVAL_MS, MAX_INTERVAL_MS);
+			LOG_ERR("SECURITY: rejected sample interval %lld ms (allowed %u-%u)",
+				cmd->value, MIN_INTERVAL_MS, MAX_INTERVAL_MS);
 		} else {
 			config.sample_interval_ms = (uint32_t)cmd->value;
 			LOG_INF("Sample interval set to %u ms", config.sample_interval_ms);
@@ -130,7 +130,7 @@ static void handle_command(const struct app_cmd *cmd)
 		break;
 	case APP_CMD_SET_BATCH_SIZE:
 		if ((cmd->value < 1) || (cmd->value > CONFIG_APP_BATCH_MAX)) {
-			LOG_ERR("Rejected batch size %lld (allowed 1-%d)", cmd->value,
+			LOG_ERR("SECURITY: rejected batch size %lld (allowed 1-%d)", cmd->value,
 				CONFIG_APP_BATCH_MAX);
 		} else {
 			config.batch_size = (uint8_t)cmd->value;

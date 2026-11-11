@@ -45,6 +45,7 @@
 #include "mqtt_client.h"
 #include "network.h"
 #include "proto/sparkplug_b.pb.h"
+#include "security.h"
 #include "sensor.h"
 #include "sparkplug.h"
 #include "timesync.h"
@@ -92,6 +93,7 @@ enum node_metric {
 	NM_RSSI,
 	NM_UPTIME,
 	NM_MQTT_CONNECTS,
+	NM_SECURITY,
 	NM_COUNT
 };
 
@@ -110,6 +112,7 @@ static const struct {
 	[NM_RSSI] = {"Status/RSSI", DT_INT32, 7},
 	[NM_UPTIME] = {"Status/Uptime", DT_INT64, 8},
 	[NM_MQTT_CONNECTS] = {"Status/MQTT Connects", DT_INT64, 9},
+	[NM_SECURITY] = {"Properties/Security", DT_STRING, 10},
 };
 
 static const char *const msg_type_names[SPB_MSG_TYPE_COUNT] = {
@@ -272,6 +275,11 @@ static bool get_node_metric(const struct metric_src *src, size_t idx, spb_metric
 			m->has_is_null = true;
 			m->is_null = true;
 		}
+		break;
+	case NM_SECURITY:
+		m->which_value = TAG_STRING;
+		strncpy(m->value.string_value, app_security_posture(),
+			sizeof(m->value.string_value) - 1);
 		break;
 	case NM_UPTIME:
 		set_long(m, k_uptime_get() / 1000);
@@ -603,7 +611,8 @@ static bool decode_metrics_cb(pb_istream_t *stream, const pb_field_t *field, voi
 	nm = match_node_metric(&m);
 	if ((nm < 0) || !metric_as_int64(&m, &v)) {
 		res->unknown++;
-		LOG_WRN("NCMD: unsupported metric %s (alias %llu)", m.has_name ? m.name : "-",
+		LOG_WRN("SECURITY: NCMD with unsupported metric %s (alias %llu) ignored",
+			m.has_name ? m.name : "-",
 			(unsigned long long)m.alias);
 		return true;
 	}
@@ -625,7 +634,8 @@ static bool decode_metrics_cb(pb_istream_t *stream, const pb_field_t *field, voi
 		break;
 	default:
 		res->unknown++;
-		LOG_WRN("NCMD: %s is read-only", node_metrics[nm].name);
+		LOG_WRN("SECURITY: NCMD tried to write read-only metric %s",
+			node_metrics[nm].name);
 		break;
 	}
 	return true;
@@ -675,7 +685,7 @@ static void handle_rx(const struct rx_msg *rx)
 	(void)sparkplug_topic(SPB_NCMD, ncmd, sizeof(ncmd));
 	if (strcmp(rx->topic, ncmd) != 0) {
 		/* DCMD: the device "sensors" has no writable metrics */
-		LOG_WRN("Command on %s ignored (no writable metrics)", rx->topic);
+		LOG_WRN("SECURITY: command on %s ignored (no writable metrics)", rx->topic);
 		return;
 	}
 
@@ -703,7 +713,16 @@ static void handle_rx(const struct rx_msg *rx)
 		born_gen = 0; /* the thread loop publishes NBIRTH + DBIRTH again */
 	}
 	if (res.reboot) {
-		send_ndeath_and_reboot();
+		int64_t up_s = k_uptime_get() / 1000;
+
+		if (up_s < CONFIG_APP_SPARKPLUG_REBOOT_MIN_UPTIME_S) {
+			LOG_WRN("SECURITY: NCMD Reboot rejected - uptime %lld s < %d s "
+				"(reboot-loop protection)", up_s,
+				CONFIG_APP_SPARKPLUG_REBOOT_MIN_UPTIME_S);
+		} else {
+			LOG_WRN("SECURITY: NCMD Reboot accepted");
+			send_ndeath_and_reboot();
+		}
 	}
 }
 
