@@ -11,6 +11,8 @@
       -Simulation  adds app\overlay-sim.conf (simulated values, no hardware)
       -ModbusRtu   adds app\overlay-modbus-rtu.conf + app\modbus-rtu.overlay
                    (RS485 on UART0, console moves to the "USB" port)
+      -ModemDebug  adds app\overlay-modem-debug.conf (shell with modem AT
+                   commands + debug logs from CMUX/PPP/chat)
 
     CMake caches -D options, so switching variant with an incremental build
     would silently keep the old variant. The script remembers the variant in
@@ -35,6 +37,9 @@
 .PARAMETER ModbusRtu
     Enable the Modbus RTU client (RS485 on UART0, console on USB Serial/JTAG).
 
+.PARAMETER ModemDebug
+    Shell with "modem send AT..." commands and verbose modem logs.
+
 .PARAMETER ExtraConf
     Extra Kconfig fragment(s), e.g. app\secrets.conf.
 
@@ -43,6 +48,7 @@
     .\scripts\build.ps1 -Simulation
     .\scripts\build.ps1 -ModbusRtu
     .\scripts\build.ps1 -ModbusRtu -Simulation
+    .\scripts\build.ps1 -ModemDebug
 #>
 [CmdletBinding()]
 param(
@@ -52,6 +58,7 @@ param(
     [switch]$Pristine,
     [switch]$Simulation,
     [switch]$ModbusRtu,
+    [switch]$ModemDebug,
     [string[]]$ExtraConf
 )
 
@@ -72,6 +79,9 @@ if ($ModbusRtu) {
 }
 if ($Simulation) {
     $confFiles += ConvertTo-CMakePath (Join-Path $AppDir 'overlay-sim.conf')
+}
+if ($ModemDebug) {
+    $confFiles += ConvertTo-CMakePath (Join-Path $AppDir 'overlay-modem-debug.conf')
 }
 foreach ($f in $ExtraConf) {
     $confFiles += ConvertTo-CMakePath $f
@@ -111,5 +121,6 @@ Set-Content -Path $variantFile -Value $variant -Encoding ascii
 $desc = @()
 if ($Simulation) { $desc += 'simulation' }
 if ($ModbusRtu) { $desc += 'Modbus RTU (console on USB port)' }
+if ($ModemDebug) { $desc += 'modem debug shell' }
 if ($desc.Count -eq 0) { $desc += 'standard' }
 Write-Ok "Build OK ($($desc -join ', ')). Output: $BuildDir\app\zephyr\zephyr.bin (+ $BuildDir\mcuboot)"
