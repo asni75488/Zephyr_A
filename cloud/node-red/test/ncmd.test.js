@@ -18,9 +18,9 @@ const run = (msg) => fn(msg, node, flow, {}, sparkplug);
 
 // 1. No edge node known yet -> warning, nothing sent
 assert.strictEqual(run({ payload: { name: 'Node Control/Rebirth', type: 'Boolean', value: true } }), null);
-assert.match(log.pop(), /^warn:No edge node online/);
+assert.match(log.pop(), /^warn:No edge node known/);
 
-// 2. One online, one offline edge node -> only the online one is addressed
+// 2. One online, one offline edge node -> online one gets it, offline one queues it
 store.edgeNodes = { 'esp32c6-14c19fe0ab24': { group: 'ProjektA', online: true }, 'esp32c6-old': { group: 'ProjektA', online: false } };
 let out = run({ payload: { name: 'Config/Sample Interval', type: 'Int64', value: 5000 } });
 assert.strictEqual(out[0].length, 1);
@@ -28,13 +28,24 @@ assert.strictEqual(out[0][0].topic, 'spBv1.0/ProjektA/NCMD/esp32c6-14c19fe0ab24'
 assert.ok(Buffer.isBuffer(out[0][0].payload));
 assert.deepStrictEqual(encoded.metrics, [{ name: 'Config/Sample Interval', type: 'Int64', value: 5000 }]);
 assert.ok(encoded.timestamp > 1767225600000, 'NCMD carries a UTC timestamp');
+assert.deepStrictEqual(store.pendingNcmd['esp32c6-old'], [{ name: 'Config/Sample Interval', type: 'Int64', value: 5000 }]);
 
-// 3. Several metrics and an explicit target
-out = run({ edge: 'esp32c6-old', payload: { metrics: [{ name: 'Config/Batch Size', type: 'Int64', value: 1 }, { name: 'Node Control/Rebirth', type: 'Boolean', value: true }] } });
+// 3. Several metrics for the offline node: queued, latest value per metric wins
+out = run({ edge: 'esp32c6-old', payload: { metrics: [{ name: 'Config/Sample Interval', type: 'Int64', value: 15000 }, { name: 'Node Control/Sleep', type: 'Int64', value: 600 }] } });
+assert.strictEqual(out, null);
+assert.deepStrictEqual(store.pendingNcmd['esp32c6-old'].map((m) => m.name + '=' + m.value),
+    ['Config/Sample Interval=15000', 'Node Control/Sleep=600']);
+
+// 4. Other Sparkplug traffic does not release the queue; the node's NBIRTH does
+assert.strictEqual(run({ topic: 'spBv1.0/ProjektA/DDATA/esp32c6-old/sensors', payload: Buffer.from([0]) }), null);
+assert.strictEqual(run({ topic: 'spBv1.0/ProjektA/NBIRTH/esp32c6-14c19fe0ab24', payload: Buffer.from([0]) }), null);
+out = run({ topic: 'spBv1.0/ProjektA/NBIRTH/esp32c6-old', payload: Buffer.from([0]) });
 assert.strictEqual(out[0][0].topic, 'spBv1.0/ProjektA/NCMD/esp32c6-old');
 assert.strictEqual(encoded.metrics.length, 2);
+assert.strictEqual(store.pendingNcmd['esp32c6-old'], undefined, 'queue emptied');
+assert.strictEqual(run({ topic: 'spBv1.0/ProjektA/NBIRTH/esp32c6-old', payload: Buffer.from([0]) }), null, 'sent once');
 
-// 4. Invalid metric -> error, nothing sent
+// 5. Invalid metric -> error, nothing sent
 assert.strictEqual(run({ payload: { name: 'Config/Batch Size', value: 3 } }), null);
 assert.match(log.pop(), /^error:NCMD metric needs name, type and value/);
 

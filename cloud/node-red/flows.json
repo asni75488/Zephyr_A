@@ -64,7 +64,8 @@
     "y": 120,
     "wires": [
       [
-        "a1f0c0de00000005"
+        "a1f0c0de00000005",
+        "a1f0c0de00000020"
       ]
     ]
   },
@@ -500,11 +501,36 @@
     ]
   },
   {
+    "id": "a1f0c0de00000029",
+    "type": "inject",
+    "z": "a1f0c0de00000001",
+    "name": "Deep sleep 10 min (LP core wakes it)",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "",
+    "crontab": "",
+    "once": false,
+    "onceDelay": 0.1,
+    "topic": "",
+    "payload": "{\"name\": \"Node Control/Sleep\", \"type\": \"Int64\", \"value\": 600}",
+    "payloadType": "json",
+    "x": 180,
+    "y": 580,
+    "wires": [
+      [
+        "a1f0c0de00000020"
+      ]
+    ]
+  },
+  {
     "id": "a1f0c0de00000020",
     "type": "function",
     "z": "a1f0c0de00000001",
     "name": "Sparkplug B encode NCMD",
-    "func": "// Zephyr_A - Node-RED function \"Sparkplug B encode NCMD\" (part 7).\n// Source of the function node in flows.json (kept here for review and the\n// unit test in test/ncmd.test.js). External module: sparkplug-payload (Tahu).\n//\n// In:  msg.payload = one metric { name, type, value }\n//                    or { metrics: [ { name, type, value }, ... ] }\n//      msg.edge    = edge node id (optional; default: every edge node that is\n//                    online, learned from NBIRTH/NDEATH by the decoder)\n// Out: one MQTT message per edge node:\n//      topic spBv1.0/<group>/NCMD/<edge>, payload = Sparkplug B protobuf\n//\n// Commands the firmware understands (docs/07-sparkplug-tid.md):\n//   Node Control/Rebirth   Boolean true\n//   Node Control/Reboot    Boolean true\n//   Config/Sample Interval Int64   5000..15000 [ms]\n//   Config/Batch Size      Int64   1..12\n\nconst edges = flow.get('edgeNodes') || {};\nconst targets = msg.edge ? [msg.edge] : Object.keys(edges).filter((e) => edges[e].online);\nif (targets.length === 0) {\n    node.warn('No edge node online yet (waiting for an NBIRTH)');\n    return null;\n}\n\nconst metrics = (msg.payload && Array.isArray(msg.payload.metrics)) ? msg.payload.metrics : [msg.payload];\nfor (const m of metrics) {\n    if (!m || typeof m.name !== 'string' || typeof m.type !== 'string' || m.value === undefined) {\n        node.error('NCMD metric needs name, type and value: ' + JSON.stringify(m));\n        return null;\n    }\n}\n\nconst payload = sparkplug.get('spBv1.0').encodePayload({ timestamp: Date.now(), metrics: metrics });\nconst out = targets.map((e) => ({\n    topic: 'spBv1.0/' + ((edges[e] && edges[e].group) || 'ProjektA') + '/NCMD/' + e,\n    payload: Buffer.from(payload)\n}));\nnode.status({ fill: 'blue', shape: 'dot', text: metrics.map((m) => m.name + '=' + m.value).join(', ') + ' -> ' + targets.join(', ') });\nreturn [out];\n",
+    "func": "// Zephyr_A - Node-RED function \"Sparkplug B encode NCMD\" (part 7, queue part 9).\n// Source of the function node in flows.json (kept here for review and the\n// unit test in test/ncmd.test.js). External module: sparkplug-payload (Tahu).\n//\n// In:  msg.payload = one metric { name, type, value }\n//                    or { metrics: [ { name, type, value }, ... ] }\n//      msg.edge    = edge node id (optional; default: every known edge node,\n//                    learned from NBIRTH/NDEATH by the decoder)\n//   or a Sparkplug message from the MQTT-in node (msg.topic spBv1.0/...):\n//      on an NBIRTH, the commands queued for that edge node are sent.\n// Out: one MQTT message per edge node:\n//      topic spBv1.0/<group>/NCMD/<edge>, payload = Sparkplug B protobuf\n//\n// Offline edge nodes (part 9): in the interval-uplink mode the node is online\n// only for a minute every 30 min. A command for an offline node is queued\n// (flow context \"pendingNcmd\", latest value per metric) and sent right after\n// its next NBIRTH, while the node waits for commands (APP_UPLINK_LINGER_S).\n// Sparkplug forbids retained NCMD, so the queue lives here.\n//\n// Commands the firmware understands (docs/07-sparkplug-tid.md, 09):\n//   Node Control/Rebirth   Boolean true\n//   Node Control/Reboot    Boolean true\n//   Node Control/Sleep     Int64   60..86400 [s] deep sleep (LP core wakes it)\n//   Config/Sample Interval Int64   5000..15000 [ms]\n//   Config/Batch Size      Int64   1..12\n\nconst edges = flow.get('edgeNodes') || {};\nconst pending = flow.get('pendingNcmd') || {};\n\nfunction encode(group, edge, metrics) {\n    const payload = sparkplug.get('spBv1.0').encodePayload({ timestamp: Date.now(), metrics: metrics });\n    return { topic: 'spBv1.0/' + group + '/NCMD/' + edge, payload: Buffer.from(payload) };\n}\n\n// NBIRTH from the MQTT-in node: deliver queued commands\nif (typeof msg.topic === 'string' && msg.topic.startsWith('spBv1.0/')) {\n    const t = msg.topic.split('/');\n    if (t[2] !== 'NBIRTH' || !pending[t[3]]) {\n        return null;\n    }\n    const metrics = pending[t[3]];\n    delete pending[t[3]];\n    flow.set('pendingNcmd', pending);\n    node.status({ fill: 'green', shape: 'dot', text: 'queued command(s) sent to ' + t[3] });\n    return [[encode(t[1], t[3], metrics)]];\n}\n\nconst targets = msg.edge ? [msg.edge] : Object.keys(edges);\nif (targets.length === 0) {\n    node.warn('No edge node known yet (waiting for an NBIRTH)');\n    return null;\n}\n\nconst metrics = (msg.payload && Array.isArray(msg.payload.metrics)) ? msg.payload.metrics : [msg.payload];\nfor (const m of metrics) {\n    if (!m || typeof m.name !== 'string' || typeof m.type !== 'string' || m.value === undefined) {\n        node.error('NCMD metric needs name, type and value: ' + JSON.stringify(m));\n        return null;\n    }\n}\n\nconst out = [];\nconst queued = [];\nfor (const e of targets) {\n    if (edges[e] && edges[e].online) {\n        out.push(encode(edges[e].group || 'ProjektA', e, metrics));\n    } else {\n        const q = (pending[e] || []).filter((p) => !metrics.some((m) => m.name === p.name));\n        pending[e] = q.concat(metrics);\n        queued.push(e);\n    }\n}\nflow.set('pendingNcmd', pending);\n\nconst what = metrics.map((m) => m.name + '=' + m.value).join(', ');\nnode.status({\n    fill: out.length ? 'blue' : 'yellow', shape: 'dot',\n    text: what + (out.length ? ' -> ' + out.map((o) => o.topic.split('/')[3]).join(', ') : '') +\n          (queued.length ? ' (queued for ' + queued.join(', ') + ')' : '')\n});\nreturn out.length ? [out] : null;\n",
     "outputs": 1,
     "timeout": 0,
     "noerr": 0,
