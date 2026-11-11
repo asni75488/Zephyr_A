@@ -46,3 +46,6 @@ cloud/**/acl.local
 # Node.js (cloud/tools, Node-RED tests)
 node_modules/
 package-lock.json
+
+# Public root CA certificates embedded in the firmware (not secret)
+!app/ca/*.der
