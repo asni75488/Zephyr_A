@@ -42,8 +42,9 @@ zephyr_a/                 <- west manifest-repo (T2) – ligger i C:\zp\zephyr_a
 │   ├── secrets.conf.example  Skabelon til app/secrets.conf (MQTT-password, ignoreres af git)
 │   ├── ca/               Rodcertifikater (ISRG) som enheden stoler på - offentlige
 │   ├── cmake/, config/   CA-indlejring, Mbed TLS-tilpasning
+│   ├── proto/            Sparkplug B .proto (Eclipse Tahu) + nanopb-options
 │   ├── src/              main.c + moduler (.c/.h pr. modul)
-│   ├── tests/            Test på native_sim (mqtt_tls: TLS mod rigtig Mosquitto)
+│   ├── tests/            Test på native_sim (mqtt_tls: TLS + Sparkplug B mod rigtig Mosquitto)
 │   └── remote/           LP-core (ULP) image
 ├── certs/                Lokale certifikater/nøgler (ignoreres af git)
 ├── cloud/                Server: Mosquitto, Node-RED

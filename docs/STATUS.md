@@ -9,14 +9,42 @@ Opdateres i slutningen af hver del. Detaljeret kravstatus: [02-kravmatrix.md](02
 | 3 | Dataopsamling: intern temperatursensor, Modbus RTU, simulering | `del-03-dataopsamling` | Færdig – **ikke testet på hardware endnu** (bruger gik videre til Del 4) |
 | 4 | Cellulært netværk (SIM7080G, CMUX, PPP) | `del-04-netvaerk` | Færdig – **ikke testet på hardware endnu** (bruger gik videre til Del 5) |
 | 5 | Cloud-server (Webdock: SSH, Mosquitto, Let's Encrypt, Node-RED) | `del-05-cloud` | Færdig – **ikke kørt på VPS endnu** (bruger gik videre til Del 6) |
-| 6 | MQTT + TLS (Mbed TLS 4.1/PSA) | `del-06-mqtt-tls` | Færdig – testet på native_sim, afventer hardwaretest og godkendelse |
-| 7 | Sparkplug B (nanopb) + tidssynkronisering (UTC-tidsstempler) | – | Ikke startet |
+| 6 | MQTT + TLS (Mbed TLS 4.1/PSA) | `del-06-mqtt-tls` | Færdig – testet på native_sim, **ikke på hardware endnu** |
+| 7 | Sparkplug B + tidssynkronisering | `del-07-sparkplug` | Færdig – testet på native_sim, afventer hardwaretest og godkendelse |
 | 8 | Sikkerhed: IEC 62443-4-2 / CRA | – | Ikke startet |
 | 9 | Lavt strøm- og dataforbrug, LP-kerne (`remote/`) | – | Ikke startet |
 | 10 | Nice to have (NCMD, dashboard, mTLS, MCUboot-signering/OTA) | – | Ikke startet |
 | 11 | Afslutning: test, memory layout, rapportmateriale | – | Ikke startet |
 
 Delene blev omnummereret i Del 3 (dataopsamling før netværk).
+
+## Del 7 – lavet
+
+- `timesync.c`: SNTP (2 servere, plausibilitetstjek ≥ 2026), offset til uptime, `SYS_CLOCK_REALTIME` sættes, resync
+  hver 24. time. `network` melder først `EVT_UP`, når UTC er gyldig. `sensor` tidsstempler målinger
+- TLS: `MBEDTLS_HAVE_TIME_DATE=y`, så certifikaternes gyldighedsdatoer tjekkes
+- `sparkplug.c` (nanopb, callbacks): NBIRTH (10 metrics), DBIRTH (alias 100+, Float °C), DDATA pr. batch med
+  UTC pr. måling (`is_null` ved dårlig kvalitet, automatisk opdeling over 512 B), NDATA (config + status hvert 15. min),
+  NDEATH som Will og før reboot, bdSeq/seq efter Sparkplug B 3.0, NCMD Rebirth/Reboot/Sample Interval/Batch Size
+- `mqtt_client.c`: kasserer beskeder fra forrige session, `sparkplug_on_disconnected()`. Selvtesten er fjernet
+- `app_logic.c`: batches → sparkplug, konfigurationsændringer bekræftes med NDATA
+- `app/proto/` + genereret `app/src/proto/sparkplug_b.pb.c/h` (committet), `scripts/gen_sparkplug_pb.py`
+- Node-RED: NCMD-knapper + encoder (`ncmd.js`), dekoder husker edge nodes, grafen viser kun procesværdier + RSSI
+- `docs/07-sparkplug-tid.md`
+
+### Verificeret
+
+- Bygger uden warnings: standard (FLASH 10,3 %, RAM 39,4 %), `-TlsDebug`, `-ModbusRtu -Simulation`, uden secrets
+- native_sim mod Mosquitto 2.0.18 + lokal SNTP: **68/68** (hel Sparkplug-session kontrolleret med uafhængig dekoder,
+  NCMD via navn og alias, rebirth, reboot → NDEATH, link-tab → Will-NDEATH + bdSeq+1, udløbet/fremtidigt
+  certifikat afvist, SNTP-svar fra 1994 afvist). Beskederne er også parset med Tahus officielle `.proto` (protoc)
+- Node-RED-funktioner: `decode.test.js` og `ncmd.test.js` bestået
+- Mosquitto sender den gamle Will ved "client id takeover" (verificeret lokalt)
+
+### Mangler (hardware/server)
+
+- [ ] Del 7-tjeklisten i `07-sparkplug-tid.md` §11 (kræver Del 5 og Del 6)
+- [ ] Del 3–6 på hardware/VPS
 
 ## Del 6 – lavet
 
@@ -137,7 +165,8 @@ Delene blev omnummereret i Del 3 (dataopsamling før netværk).
 
 ## Kendte problemer / noter
 
-- **Mbed TLS 4.1 (PSA):** løst i Del 6 (se `06-mqtt-tls.md` §7). Certifikatdatoer tjekkes først efter SNTP (Del 7).
+- **Mbed TLS 4.1 (PSA):** løst i Del 6 (se `06-mqtt-tls.md` §7). Certifikatdatoer tjekkes fra Del 7.
+- **bdSeq** gemmes ikke i flash og starter ved 0 efter reboot (`07-sparkplug-tid.md` §9).
 - **RNG:** ESP32-C6's hardware-RNG har kun fuld entropi med aktiv radio. Vurderes i Del 8.
 - **MQTT-password** ligger i klartekst i flash. Beskyttes i Del 8.
 - **`CONFIG_PM` + logging:** linkerfejl `log_const_soc` i Zephyr 4.4.0. Workaround verificeret
@@ -148,7 +177,6 @@ Delene blev omnummereret i Del 3 (dataopsamling før netværk).
 - Sysbuild giver en harmløs Kconfig-warning om `MCUBOOT_UPDATE_FOOTER_SIZE` (kun relevant for OTA).
 - Modbus RTU-varianten flytter console til USB-porten (USB Serial/JTAG). Den rigtige Modbus-kilde/slave er
   stadig ikke kendt. Registertabellen i `modbus.c` er et eksempel (holding 0–1, 0,1-skalering).
-- Batches kasseres i `app_logic`, indtil Sparkplug er implementeret (Del 7). Indtil da sendes kun selvtest-NDATA.
 - **Webdock:** passwords til admin/MySQL/FTP var synlige på et skærmbillede. Skal skiftes (05-cloud.md §3.1).
 - Pc'en har ældre installationer (`C:\zephyrproject`, `C:\Users\paulm\zephyrproject`). De bruges ikke.
 

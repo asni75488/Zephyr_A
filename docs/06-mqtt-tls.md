@@ -1,5 +1,8 @@
 # Del 6 – MQTT over TLS (Mbed TLS 4.1 / PSA)
 
+> **Fra Del 7:** selvtest-beskeden er erstattet af rigtig Sparkplug B, og certifikaternes
+> datoer tjekkes nu (SNTP). Se [07-sparkplug-tid.md](07-sparkplug-tid.md).
+
 Enheden forbinder nu til egen broker `zephyra.vps.webdock.cloud:8883` (fra Del 5):
 
 - **MQTT 3.1.1 over TLS 1.3** (TLS 1.2 som reserve) med Zephyrs MQTT-bibliotek og Mbed TLS 4.1.

@@ -159,7 +159,7 @@ Zephyr: **lavere tal = højere prioritet**. Prioriteter ≥ 0 er *preemptive*, n
 | `network` | network | 5 | preemptive | 2048 B | Event (net_mgmt-callbacks → `k_event`) | Skal hurtigt reagere på link op/ned, men laver kun lidt arbejde selv – driveren gør det tunge |
 | `mqtt` | mqtt_client | 6 | preemptive | 8192 B (Del 6) | Event (`zsock_poll` på TLS-socket + eventfd, der signaleres af TX-køen og link-tab, timeout = keep-alive) | TLS-handshake i Mbed TLS bruger meget stack. Under network, så link-hændelser behandles først. Se `06-mqtt-tls.md` |
 | `app_logic` | app_logic | 7 | preemptive | 1536 B | Event (`k_poll` på sample- og kommando-kø) | Tidskritisk er kun at kø'en tømmes, før den er fuld (16 pladser = 160 s) |
-| `sparkplug` | sparkplug | 8 | preemptive | 3072 B | Event (`k_poll` på batch- og RX-kø) | Protobuf-encoding er CPU-arbejde uden deadline. Lavest, så den aldrig forsinker målinger eller netværk |
+| `sparkplug` | sparkplug | 8 | preemptive | 4096 B (Del 7) | Event (`k_poll` på batch- og RX-kø) | Protobuf-encoding er CPU-arbejde uden deadline. Lavest, så den aldrig forsinker målinger eller netværk |
 | `main` | main | 0 | preemptive | 2048 B | Kun opstart | Initialiserer og starter trådene, kører derefter heartbeat (fjernes, når alle moduler er implementeret) |
 
 **Ingen cooperative app-tråde.** En cooperative tråd kan ikke afbrydes af andre tråde. Alle
@@ -193,7 +193,7 @@ tråde, der *venter* i stedet for at polle, er derfor ikke kun pænere kode, de 
 |---|---|---|---|---|
 | `meas_q` | `k_msgq` (16 × 56 B) | sensor → app_logic | `struct measurement` (kopi) | Kopi-semantik: producent og forbruger deler ingen hukommelse. Bufferer 160 s, hvis app_logic er optaget |
 | `cmd_q` | `k_msgq` (4) | sparkplug → app_logic | `struct app_cmd` | Kommandoer fra cloud er sjældne og små |
-| `batch_q` | `k_msgq` (2 × ~680 B) | app_logic → sparkplug | `struct measurement_batch` | Én batch i arbejde + én i kø er nok (1 batch/min) |
+| `batch_q` | `k_msgq` (4 × ~680 B, Del 7) | app_logic → sparkplug | `struct measurement_batch` | Batches venter her (ukodede), mens MQTT er nede: 4 minutters data. De sendes efter næste BIRTH |
 | `rx_q` | `k_msgq` (2) | mqtt → sparkplug | modtaget NCMD/DCMD/STATE (topic + payload) | Decoding sker i sparkplug-tråden, ikke i mqtt-tråden |
 | `mqtt_tx_q` | `k_msgq` (4) | sparkplug → mqtt | `struct app_mqtt_msg` (topic + **pointer** til payload) | Payload kopieres ikke to gange |
 | `mqtt_payload_slab` | `k_mem_slab` (4 × 512 B) | sparkplug alloc → mqtt free | encodede protobuf-payloads | Fast hukommelse, ingen heap-fragmentering, deterministisk. Ejerskab følger beskeden |
@@ -514,24 +514,29 @@ overhead betalt 6 gange, og forbruget er cirka 4 gange større.
 
 ---
 
-## 8. Sparkplug B-design (overblik, detaljer i Del 7)
+## 8. Sparkplug B-design (implementeret i Del 7, detaljer i [07-sparkplug-tid.md](07-sparkplug-tid.md))
 
 | Element | Værdi |
 |---|---|
 | Namespace | `spBv1.0` |
 | Group id | `ProjektA` |
 | Edge node id | `device_info_id()`, fx `esp32c6-14c19fe0ab24` |
-| Device id | `sensors` (boardets egne sensorer). Modbus-slaver bliver senere egne devices |
-| NBIRTH | `bdSeq`, `Node Control/Rebirth`, `Properties/FW Version`, `Properties/Reset Cause`, `Config/Sample Interval`, `Config/Batch Size` |
-| DBIRTH | `Temperature/Die` (alias 1, Int32, m°C) + evt. Modbus-metrics |
-| DDATA | batch af metrics: alias + timestamp + værdi |
-| NDEATH | MQTT Last Will med samme `bdSeq` som NBIRTH |
+| Device id | `sensors` (boardets egne sensorer, inkl. Modbus-kanaler) |
+| NBIRTH | `bdSeq`, `Node Control/Rebirth` (1), `Node Control/Reboot` (2), `Properties/FW Version` (3), `Properties/Reset Cause` (4), `Config/Sample Interval` (5), `Config/Batch Size` (6), `Status/RSSI` (7), `Status/Uptime` (8), `Status/MQTT Connects` (9) |
+| DBIRTH | `Temperature/Die` (alias 100, **Float, °C**) + Modbus-kanaler (alias 100 + kanal) |
+| DDATA | batch: alias + UTC-timestamp + Float-værdi pr. måling (dårlig kvalitet → `is_null`) |
+| NDATA | Config-metrics efter en ændring, Status-metrics hvert 15. minut |
+| NDEATH | MQTT Last Will med samme `bdSeq` som NBIRTH. Sendes også selv før en reboot |
 | NCMD | `Node Control/Rebirth`, `Node Control/Reboot`, `Config/Sample Interval`, `Config/Batch Size` |
-| seq | 0–255, ny værdi pr. besked, nulstilles ved NBIRTH |
+| seq | 0–255, ny værdi pr. besked, NBIRTH = 0 |
+
+> Ændret i forhold til Del 2: værdierne sendes som **Float i °C** (ikke Int32 i m°C), så
+> Node-RED og andre Sparkplug-værktøjer kan vise dem uden at kende en skalering (beslutning i
+> `05-cloud.md` §8). Device-aliaser starter ved 100, så de aldrig kolliderer med node-aliaserne.
 
 Kravet "hver MQTT-besked skal indeholde device-id, timestamp og aflæste værdier" er dækket
 således: device-id står i topic'en (edge node id). Timestamp er Sparkplug-payloadens
-`timestamp` plus ét tidsstempel pr. metric. Værdierne er metrics.
+`timestamp` plus ét UTC-tidsstempel pr. måling. Værdierne er metrics.
 
 ---
 
