@@ -154,8 +154,8 @@ check "CONNACK accepted" "MQTT connected"
 check "Last Will = NDEATH" "Last Will: spBv1.0/ProjektA/NDEATH/esp32c6-test0001"
 check "NCMD sample interval applied by app_logic" "Sample interval set to 5000 ms"
 check "NCMD batch size by alias applied" "Batch size set to 4"
-check "Unknown NCMD metric reported" "NCMD: unsupported metric Foo/Bar"
-check "DCMD ignored (no writable device metrics)" "Command on spBv1.0/ProjektA/DCMD/.* ignored"
+check "Unknown NCMD metric reported as security event" "SECURITY: NCMD with unsupported metric Foo/Bar"
+check "DCMD ignored (no writable device metrics)" "SECURITY: command on spBv1.0/ProjektA/DCMD/.* ignored"
 check "Rebirth executed" "NCMD: Node Control/Rebirth"
 check "Link loss closes session without backoff" "Network link lost"
 check "Reconnects after link loss" "connects=2 "
@@ -167,15 +167,17 @@ FAIL=$((FAIL + $(grep -c "  FAIL" "$W/e2e.txt" || true)))
 grep "TEST RESULT" "$W/dev.log" | sed 's/^/  /' || true
 stop_broker
 
-echo "== 1b. NCMD Node Control/Reboot -> NDEATH before reboot"
+echo "== 1b. NCMD Node Control/Reboot: rejected right after boot, then NDEATH + reboot"
 start_broker ecdsa
 "$SUB" -h 127.0.0.1 -p 1883 -u nodered -P nodered-pass-123 -t 'spBv1.0/#' -v -F '%t %x' >"$W/sub.log" 2>&1 &
 SUBPID=$!
-( sleep 3; ncmd "Node Control/Reboot=Boolean:true" ) &
-run_device 10
+( sleep 2; ncmd "Node Control/Reboot=Boolean:true"; sleep 5; ncmd "Node Control/Reboot=Boolean:true" ) &
+run_device 14
 sleep 1
 kill $SUBPID 2>/dev/null || true
 save_log reboot
+check "Reboot during the first 5 s rejected (reboot-loop protection)" "SECURITY: NCMD Reboot rejected - uptime"
+check "Reboot accepted later" "SECURITY: NCMD Reboot accepted"
 check "Reboot announced" "Rebooting in 2 s"
 check_not "Device did not run to the end" "TEST RESULT"
 python3 "$HERE/spb.py" decode "$W/sub.log" >"$W/reboot.json"
@@ -281,6 +283,21 @@ check "Network not reported up without time" "no time .* network stays down"
 check_not "No MQTT session" "MQTT connected"
 stop_broker
 kill "$SNTP" 2>/dev/null || true
+
+echo "== 11. No secrets in any device log"
+if grep -l "test-password-123" "$W"/dev-*.log >/dev/null 2>&1; then
+    echo "  FAIL  MQTT password found in a device log"; FAIL=$((FAIL + 1))
+else
+    echo "  PASS  MQTT password never logged ($(find "$W" -name "dev-*.log" | wc -l) logs checked)"; PASS=$((PASS + 1))
+fi
+if grep -l "BEGIN .*PRIVATE KEY" "$W"/dev-*.log >/dev/null 2>&1; then
+    echo "  FAIL  private key material in a device log"; FAIL=$((FAIL + 1))
+else
+    echo "  PASS  no private key material in device logs"; PASS=$((PASS + 1))
+fi
+check "Security posture logged at boot" "SECURITY: no eFuses on this target|SECURITY: development device" "$W/dev-ecdsa.log"
+check "Bad password logged as security event" "SECURITY: CONNACK" "$W/dev-badpass.log"
+check "Untrusted certificate logged as security event" "SECURITY: TLS handshake failed" "$W/dev-rogue.log"
 
 echo
 echo "Result: $PASS passed, $FAIL failed. Logs: $W"

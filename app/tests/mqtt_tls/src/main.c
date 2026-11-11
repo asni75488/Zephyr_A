@@ -27,6 +27,7 @@
 #include "app_logic.h"
 #include "mqtt_client.h"
 #include "network.h"
+#include "security.h"
 #include "sparkplug.h"
 #include "timesync.h"
 
@@ -78,6 +79,7 @@ int main(void)
 	size_t blocks = 0;
 	int ret;
 
+	(void)app_security_init();
 	(void)timesync_init();
 	(void)app_logic_init();
 	(void)app_logic_start();

@@ -41,6 +41,7 @@ target_sources(app PRIVATE
     ${ZEPHYR_A_APP}/src/sparkplug.c
     ${ZEPHYR_A_APP}/src/app_logic.c
     ${ZEPHYR_A_APP}/src/timesync.c
+    ${ZEPHYR_A_APP}/src/security.c
     ${ZEPHYR_A_APP}/src/proto/sparkplug_b.pb.c
 )
 target_include_directories(app PRIVATE ${ZEPHYR_A_APP}/src)
