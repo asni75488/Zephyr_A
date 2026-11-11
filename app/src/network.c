@@ -5,7 +5,8 @@
  *   OFF --request up--> STARTING (CMUX recovery, pm RESUME, net_if_up)
  *   STARTING --registration callback--> REGISTERING
  *   REGISTERING --NET_EVENT_L4_CONNECTED--> PPP_UP
- *   PPP_UP --DNS lookup (+TCP connect) of own server OK--> CONNECTED (EVT_UP)
+ *   PPP_UP --DNS lookup (+TCP connect) of own server OK
+ *          + valid UTC time (SNTP, part 7)--> CONNECTED (EVT_UP)
  *   CONNECTED --L4_DISCONNECTED--> REGISTERING (grace period, driver redials)
  *   any state --timeout/error--> BACKOFF (modem suspended) --delay--> STARTING
  *
@@ -31,6 +32,7 @@
 #include <zephyr/sys/atomic.h>
 
 #include "network.h"
+#include "timesync.h"
 
 LOG_MODULE_REGISTER(network, CONFIG_APP_LOG_LEVEL);
 
@@ -254,6 +256,28 @@ static void publish_up(bool up)
 	}
 }
 
+/*
+ * UTC time is required before the link is announced as up: Mbed TLS checks
+ * the certificate dates (CONFIG_MBEDTLS_HAVE_TIME_DATE) and every message
+ * needs a UTC timestamp. Without a first sync the attempt counts as a
+ * network failure (backoff, retry). Once synced, a failed resync is ignored.
+ */
+static int ensure_time(void)
+{
+	int ret;
+
+	if (!timesync_needs_resync()) {
+		return 0;
+	}
+	ret = timesync_sync(CONFIG_APP_TIMESYNC_TIMEOUT_MS);
+	if ((ret != 0) && !timesync_is_valid()) {
+		LOG_ERR("No UTC time (SNTP failed, %d): certificates and timestamps cannot be "
+			"trusted - not starting MQTT", ret);
+		return ret;
+	}
+	return 0;
+}
+
 /* DNS lookup (+ optional TCP connect) of the own server. */
 static int connectivity_check(void)
 {
@@ -457,7 +481,7 @@ static void network_thread(void *p1, void *p2, void *p3)
 			}
 
 			log_modem_info_once();
-			if (connectivity_check() == 0) {
+			if ((connectivity_check() == 0) && (ensure_time() == 0)) {
 				failures = 0U;
 				backoff_s = CONFIG_APP_NET_BACKOFF_MIN_S;
 				set_state(NETWORK_STATE_CONNECTED);
@@ -497,6 +521,10 @@ static void network_thread(void *p1, void *p2, void *p3)
 			}
 			if (ev == 0U) {
 				log_signal("Network status"); /* periodic status log */
+				if (timesync_needs_resync()) {
+					/* Failure is harmless: the clock keeps running. */
+					(void)timesync_sync(CONFIG_APP_TIMESYNC_TIMEOUT_MS);
+				}
 			}
 			break;
 

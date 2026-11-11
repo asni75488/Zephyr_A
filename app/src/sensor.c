@@ -21,6 +21,7 @@
 #include "app_logic.h"
 #include "modbus.h"
 #include "sensor.h"
+#include "timesync.h"
 
 LOG_MODULE_REGISTER(sensor, CONFIG_APP_LOG_LEVEL);
 
@@ -154,7 +155,7 @@ int app_sensor_read_all(struct measurement *m)
 
 	*m = (struct measurement){0};
 	m->uptime_ms = k_uptime_get();
-	m->timestamp_ms = 0; /* real UTC time from timesync in part 7 */
+	m->timestamp_ms = timesync_now_ms(); /* 0 until the first SNTP sync */
 	m->seq = meas_seq++;
 	m->simulated = IS_ENABLED(CONFIG_APP_SENSOR_SIMULATION);
 

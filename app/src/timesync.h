@@ -6,9 +6,10 @@
  * DevKitC, so UTC is obtained with SNTP over the cellular link after PPP is
  * up, and kept with the kernel clock (CLOCK_REALTIME) afterwards.
  *
- * Owner thread: network (calls timesync_sync() after "PPP up").
- * Readers: sensor (timesync_now_ms()), sparkplug. Reads are lock-free
- * (64-bit offset updated with an atomic-safe spinlock).
+ * Owner thread: network (calls timesync_sync() after the connectivity check,
+ * before NETWORK_EVT_UP, and again every CONFIG_APP_TIMESYNC_RESYNC_H hours).
+ * Readers: sensor (timesync_now_ms()), sparkplug, Mbed TLS (time() via
+ * SYS_CLOCK_REALTIME). The 64-bit offset is protected by a spinlock.
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -37,6 +38,9 @@ int timesync_sync(uint32_t timeout_ms);
 
 /** @return true once UTC has been synchronised at least once since boot. */
 bool timesync_is_valid(void);
+
+/** @return true if never synced or the last sync is older than the resync interval. */
+bool timesync_needs_resync(void);
 
 /**
  * @brief Current UTC time in ms since 1970-01-01.
