@@ -212,25 +212,92 @@ menu "Cloud / MQTT"
 config APP_MQTT_BROKER_HOST
 	string "MQTT broker host name"
 	default "zephyra.vps.webdock.cloud"
+	help
+	  Resolved with DNS and also used for the TLS host name check: the
+	  broker certificate must contain this name (subjectAltName).
 
 config APP_MQTT_BROKER_PORT
 	int "MQTT broker port (TLS)"
 	default 8883
 
 config APP_MQTT_USERNAME
-	string "MQTT user name (set in secrets.conf)"
+	string "MQTT user name (empty = device id)"
 	default ""
+	help
+	  Empty: the device id (e.g. esp32c6-14c19fe0ab24) is used. The broker
+	  ACL (cloud/mosquitto/acl) only lets a client publish below its own
+	  user name, so the user name must be the Sparkplug edge node id.
 
 config APP_MQTT_PASSWORD
 	string "MQTT password (set in secrets.conf)"
 	default ""
+	help
+	  Set only in app/secrets.conf (ignored by git). The client refuses to
+	  start without a password: the broker has no anonymous access.
 
 config APP_MQTT_KEEPALIVE_S
 	int "MQTT keep-alive [s]"
+	range 60 3600
 	default 1200
 	help
 	  Long keep-alive = fewer PINGREQ packets = less data and less radio-on
-	  time. Tuned in the low-power part.
+	  time. Data is published every minute anyway, which also counts as
+	  activity. Mosquitto disconnects a client after 1.5 x keep-alive
+	  without traffic. Tuned in the low-power part.
+
+config APP_MQTT_PINGRESP_TIMEOUT_S
+	int "Max wait for PINGRESP before the connection is considered dead [s]"
+	default 30
+
+config APP_MQTT_CONNACK_TIMEOUT_S
+	int "Max wait for CONNACK after the TLS handshake [s]"
+	default 30
+
+config APP_MQTT_BACKOFF_MIN_S
+	int "First reconnect delay [s]"
+	default 10
+
+config APP_MQTT_BACKOFF_MAX_S
+	int "Max reconnect delay [s] (delay doubles after each failure)"
+	default 600
+	help
+	  Errors that will not go away by themselves (wrong password, ACL,
+	  certificate verification) jump directly to this delay, so a
+	  misconfigured device does not burn data with TLS handshakes.
+
+config APP_MQTT_STABLE_S
+	int "A connection must last this long before the backoff is reset [s]"
+	default 60
+	help
+	  Prevents fast reconnect loops when the broker accepts the
+	  connection but closes it right away (e.g. ACL or duplicate id).
+
+config APP_MQTT_TX_QUEUE_LEN
+	int "Publish queue length (messages)"
+	default 4
+	help
+	  Messages wait here while the link is down. The payload buffer pool
+	  has one block more than the queue (one block is being encoded).
+
+config APP_MQTT_TLS_SEC_TAG_BASE
+	int "First TLS security tag used for the CA certificates"
+	default 100
+	help
+	  Each trusted root CA (app/ca/*.der) gets its own tag, starting here.
+
+config APP_MQTT_SELFTEST
+	bool "Publish a self-test NDATA message (part 6, replaced by Sparkplug in part 7)"
+	default y
+	help
+	  Publishes a small hand-encoded Sparkplug B NDATA with the metrics
+	  Test/Uptime and Test/RSSI right after each connect and then every
+	  APP_MQTT_SELFTEST_INTERVAL_S. Proves the whole chain device ->
+	  TLS -> Mosquitto -> Node-RED before the real Sparkplug module exists.
+
+config APP_MQTT_SELFTEST_INTERVAL_S
+	int "Self-test publish interval [s]"
+	depends on APP_MQTT_SELFTEST
+	default 60
 
 endmenu
 
@@ -258,10 +325,11 @@ config APP_MQTT_THREAD_PRIO
 
 config APP_MQTT_THREAD_STACK
 	int "MQTT thread stack size"
-	default 6144
+	default 8192
 	help
-	  TLS handshake (Mbed TLS) runs in this thread's context and needs a
-	  large stack. Verified with the thread analyzer in the MQTT part.
+	  The TLS handshake (Mbed TLS: certificate chain verification with
+	  ECDSA P-384 / RSA-4096, ECDHE) runs in this thread. The thread logs
+	  its peak stack use after the first connect (part 6 measurement).
 
 config APP_LOGIC_THREAD_PRIO
 	int "App logic thread priority"

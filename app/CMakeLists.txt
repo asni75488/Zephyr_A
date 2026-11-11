@@ -18,8 +18,24 @@ target_sources(app PRIVATE
     src/app_logic.c
     src/sparkplug.c
     src/mqtt_client.c
+    src/tls_ca.c
     src/network.c
     src/power.c
 )
+target_sources_ifdef(CONFIG_APP_MQTT_SELFTEST app PRIVATE src/mqtt_selftest.c)
 
 target_include_directories(app PRIVATE src)
+
+# Mbed TLS user configuration (CONFIG_MBEDTLS_USER_CONFIG_FILE) must be on the
+# include path of the Mbed TLS library, not only of the app.
+zephyr_include_directories(config)
+
+# Trusted root CAs for the MQTT broker certificate (public certificates,
+# see app/ca/README.md). Order = order of the TLS security tags.
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/ca_certs.cmake)
+zephyr_a_add_ca_certs(app
+    ${CMAKE_CURRENT_SOURCE_DIR}/ca/isrg-root-ye.der
+    ${CMAKE_CURRENT_SOURCE_DIR}/ca/isrg-root-yr.der
+    ${CMAKE_CURRENT_SOURCE_DIR}/ca/isrg-root-x2.der
+    ${CMAKE_CURRENT_SOURCE_DIR}/ca/isrg-root-x1.der
+)
