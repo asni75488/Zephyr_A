@@ -42,3 +42,7 @@ certs/*
 cloud/**/passwd
 cloud/**/*.passwd
 cloud/**/acl.local
+
+# Node.js (cloud/tools, Node-RED tests)
+node_modules/
+package-lock.json
