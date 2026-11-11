@@ -39,9 +39,9 @@ brug.
 | GPIO16 | UART0 TX (console/log) | USB-UART-bro ("UART"-porten) | 1 | Board-standard, uændret |
 | GPIO17 | UART0 RX (console/log) | USB-UART-bro ("UART"-porten) | 1 | Board-standard, uændret |
 | GPIO12 / GPIO13 | USB D- / D+ (USB Serial/JTAG) | "USB"-porten | – | Board-standard, uændret |
-| GPIO18 | UART1 TX | Modulets RX | 4 | Planlagt afvigelse (overlay i del 4). Pinctrl `UART1_TX_GPIO18` verificeret |
-| GPIO19 | UART1 RX | Modulets TX | 4 | Planlagt afvigelse (overlay i del 4). Pinctrl `UART1_RX_GPIO19` verificeret |
-| GPIO22 | `mdm-power-gpios` (pladsholder) | **Ikke forbundet** | 3 | Kræves af `simcom,sim7080`-bindingen, men modulet har ingen PWRKEY (se `02-arkitektur.md` §6.4) |
+| GPIO18 | UART1 TX | Modulets RX | 4 | **Afvigelse** i `app.overlay` (`uart1_default`). 115200 8N1 |
+| GPIO19 | UART1 RX | Modulets TX | 4 | **Afvigelse** i `app.overlay` (`uart1_default`, pull-up) |
+| GPIO22 | `mdm-power-gpios` (pladsholder) | **Ikke forbundet** | 4 | **Afvigelse** i `app.overlay`. Kræves af `simcom,sim7080`-bindingen, men modulet har ingen PWRKEY. Driveren pulser den kun ved suspend/recovery (se `04-netvaerk.md` §3.1) |
 | – | `coretemp` (intern temperatursensor) | – | 3 | **Afvigelse:** `status = "okay"` i `app.overlay` (disabled i SoC-dtsi) |
 | GPIO20 | UART0 TX → RS485 DI | Kun Modbus RTU-variant | 3 | **Afvigelse** i `modbus-rtu.overlay` (se nedenfor) |
 | GPIO21 | UART0 RX ← RS485 RO | Kun Modbus RTU-variant | 3 | **Afvigelse** i `modbus-rtu.overlay` |
@@ -51,7 +51,7 @@ brug.
 
 GPIO18/19 er almindelige I/O-pins på header J3 (alternative funktioner SDIO/FSPICS),
 ikke strapping-pins, så de er frie til UART1. Det verificeres endeligt i del 4 mod
-pinctrl-definitionerne i Zephyr 4.4.0 (`esp32c6-gpio-sigmap.h`). Makroerne findes (tjekket i del 2).
+pinctrl-definitionerne i Zephyr 4.4.0 (`esp32c6-gpio-sigmap.h`). Makroerne findes og er brugt i del 4.
 
 UART-planen og vurderingen af console på USB Serial/JTAG står i `02-arkitektur.md` §6.
 
@@ -76,6 +76,8 @@ Ledningsdiagram og test: `03-dataopsamling.md` §5.3.
 - **Ingen PWRKEY/RESET-stift på modulet.** SIM7080G tænder, når det får 5 V, og kan kun
   styres via AT-kommandoer (`AT+CFUN`, `AT+CPOWD`, PSM/eDRX). En hård reset eller
   total slukning kræver en transistor/load-switch i 5 V-forsyningen (mulig forbedring).
+  Fordi modemet beholder strømmen, når ESP32-C6 resettes, sender firmwaren en CMUX
+  close-down-ramme før hver modemstart (`04-netvaerk.md` §3.2).
 - **Strøm:** Modulet forsynes fra DevKitC'ets 5 V (USB). Cellulære moduler trækker
   korte strømspidser. Firmwaren logger reset-årsagen ved opstart; `brownout` er tegn
   på, at forsyningen ikke kan følge med.

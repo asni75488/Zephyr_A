@@ -335,6 +335,9 @@ sequenceDiagram
 
 ### 5.3 Tilstandsmaskine: netværk (network-tråden)
 
+> Implementeret i Del 4. Den endelige maskine (med forbindelsestjek og grace-periode) står i
+> [04-netvaerk.md](04-netvaerk.md) §2.
+
 ```mermaid
 stateDiagram-v2
     [*] --> OFF
