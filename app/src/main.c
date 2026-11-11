@@ -6,9 +6,9 @@
  * module threads run (see docs/02-arkitektur.md).
  *
  * Modules whose start function returns -ENOSYS are not implemented yet.
- * Part 3: sensor + app_logic run; the measurement log replaces the
- * heartbeat of parts 1-2, so main returns after start-up (its thread ends,
- * the module threads keep running).
+ * Running since part 6: sensor, app_logic, network (cellular) and mqtt (MQTT
+ * over TLS + self-test NDATA). sparkplug follows in part 7. main returns
+ * after start-up (its thread ends, the module threads keep running).
  *
  * SPDX-License-Identifier: Apache-2.0
  */
