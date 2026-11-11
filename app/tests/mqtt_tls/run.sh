@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# Zephyr_A - MQTT/TLS client test on native_sim against a real Mosquitto.
+# Zephyr_A - end-to-end test on native_sim against a real Mosquitto.
 #
-# Runs the firmware's mqtt_client.c (same TLS Kconfig as app/prj.conf) on the
-# Native Simulator with host sockets, against Mosquitto 2.0 with the repo's
-# ACL, and checks positive and negative cases (docs/06-mqtt-tls.md, 5.2).
+# Runs the firmware's app_logic, sparkplug (nanopb), mqtt_client, tls_ca and
+# timesync (same TLS Kconfig as app/prj.conf) on the Native Simulator with
+# host sockets, against Mosquitto 2.0 with the repo's ACL and a local SNTP
+# server, and checks positive and negative cases (docs/06-mqtt-tls.md 5.2,
+# docs/07-sparkplug-tid.md 6). check_e2e.py validates the Sparkplug session.
 #
 # Requirements (Linux): Zephyr workspace with west, mosquitto 2.0 +
-# mosquitto_sub/pub/passwd, openssl, python3, and a hosts entry
+# mosquitto_sub/pub/passwd, openssl, python3 (no packages), and a hosts entry
 #   127.0.0.1 zephyra.vps.webdock.cloud
 # so the TLS host name check uses the real broker name.
 #
@@ -60,6 +62,11 @@ echo "== Broker users (ACL from cloud/mosquitto/acl)"
 cp "$HERE/../../../cloud/mosquitto/acl" "$W/acl"
 if id mosquitto >/dev/null 2>&1; then chown mosquitto: "$W/passwd" "$W/acl"; fi
 chmod 600 "$W/passwd" "$W/acl"
+
+echo "== SNTP test server (127.0.0.1:1123)"
+python3 "$HERE/sntp_server.py" 1123 &
+SNTP=$!
+sleep 0.5
 
 broker_conf() { # <chain>
     cat <<EOF
@@ -121,27 +128,58 @@ check_not() {
 }
 save_log() { cp "$W/dev.log" "$W/dev-$1.log"; cp "$W/broker.log" "$W/broker-$1.log" 2>/dev/null || true; }
 
-echo "== 1. ECDSA chain (Let's Encrypt YE shape), TLS 1.3, data, NCMD, link loss"
+ncmd() { # <metric=type:value>... -> NCMD to the test device (as user nodered)
+    python3 "$HERE/spb.py" ncmd "$@" | "$PUB" -h 127.0.0.1 -p 1883 -u nodered \
+        -P nodered-pass-123 -t spBv1.0/ProjektA/NCMD/esp32c6-test0001 -s
+}
+
+echo "== 1. ECDSA chain, TLS 1.3, Sparkplug B session: BIRTH, DDATA, NCMD, rebirth, link loss"
 start_broker ecdsa
 "$SUB" -h 127.0.0.1 -p 1883 -u nodered -P nodered-pass-123 -t 'spBv1.0/#' -v -F '%t %x' >"$W/sub.log" 2>&1 &
 SUBPID=$!
-( sleep 6; "$PUB" -h 127.0.0.1 -p 1883 -u nodered -P nodered-pass-123 -q 1 \
-    -t spBv1.0/ProjektA/NCMD/esp32c6-test0001 -m 'ncmd-test' ) &
-run_device 20 -link_loss_at=12
+(
+    sleep 5; ncmd "Config/Sample Interval=Int64:5000" "#6=Int64:4" "Foo/Bar=Int64:1"
+    sleep 5; ncmd "Node Control/Rebirth=Boolean:true"
+    sleep 2; python3 "$HERE/spb.py" ncmd "Foo=Int64:1" | "$PUB" -h 127.0.0.1 -p 1883 -u nodered \
+        -P nodered-pass-123 -t spBv1.0/ProjektA/DCMD/esp32c6-test0001/sensors -s
+) &
+run_device 26 -link_loss_at=18
+sleep 1
 kill $SUBPID 2>/dev/null || true
 save_log ecdsa
-check "TLS 1.3 handshake, certificate + host name verified" "TLS established .*TLS 1\.3"
+cp "$W/sub.log" "$W/sub-ecdsa.log"
+check "Time synced from SNTP before connecting" "Time synced via 127.0.0.1:1123"
+check "TLS 1.3, certificate (incl. dates) + host name verified" "TLS established .*TLS 1\.3"
 check "CONNACK accepted" "MQTT connected"
-check "Subscribed to own NCMD" "Subscribed spBv1.0/ProjektA/NCMD/esp32c6-test0001"
-check "NCMD received by device" "RX spBv1.0/ProjektA/NCMD/esp32c6-test0001 \(9 B\)"
-check "NDATA arrived at broker subscriber" "^spBv1.0/ProjektA/NDATA/esp32c6-test0001 " "$W/sub.log"
-python3 "$HERE/decode_ndata.py" "$W/sub.log" >"$W/decoded.txt"
-check "NDATA decodes as Sparkplug B (Test/Uptime, RSSI -71)" "Test/RSSI=-71.0" "$W/decoded.txt"
+check "Last Will = NDEATH" "Last Will: spBv1.0/ProjektA/NDEATH/esp32c6-test0001"
+check "NCMD sample interval applied by app_logic" "Sample interval set to 5000 ms"
+check "NCMD batch size by alias applied" "Batch size set to 4"
+check "Unknown NCMD metric reported" "NCMD: unsupported metric Foo/Bar"
+check "DCMD ignored (no writable device metrics)" "Command on spBv1.0/ProjektA/DCMD/.* ignored"
+check "Rebirth executed" "NCMD: Node Control/Rebirth"
 check "Link loss closes session without backoff" "Network link lost"
 check "Reconnects after link loss" "connects=2 "
-check "No publish dropped" "dropped=0 "
 check_not "No errors logged" "<err>"
+check_not "Broker denied nothing (ACL)" "[Dd]enied" "$W/broker.log"
+python3 "$HERE/check_e2e.py" "$W/sub.log" | tee "$W/e2e.txt" || true
+PASS=$((PASS + $(grep -c "  PASS" "$W/e2e.txt" || true)))
+FAIL=$((FAIL + $(grep -c "  FAIL" "$W/e2e.txt" || true)))
 grep "TEST RESULT" "$W/dev.log" | sed 's/^/  /' || true
+stop_broker
+
+echo "== 1b. NCMD Node Control/Reboot -> NDEATH before reboot"
+start_broker ecdsa
+"$SUB" -h 127.0.0.1 -p 1883 -u nodered -P nodered-pass-123 -t 'spBv1.0/#' -v -F '%t %x' >"$W/sub.log" 2>&1 &
+SUBPID=$!
+( sleep 3; ncmd "Node Control/Reboot=Boolean:true" ) &
+run_device 10
+sleep 1
+kill $SUBPID 2>/dev/null || true
+save_log reboot
+check "Reboot announced" "Rebooting in 2 s"
+check_not "Device did not run to the end" "TEST RESULT"
+python3 "$HERE/spb.py" decode "$W/sub.log" >"$W/reboot.json"
+check "NDEATH published before the reboot" '"type": "NDEATH"' "$W/reboot.json"
 stop_broker
 
 echo "== 2. RSA chain (Let's Encrypt YR shape), TLS 1.3"
@@ -218,6 +256,31 @@ save_log restart
 check "Session end detected" "Session ended|Connection closed"
 check "Reconnected" "connects=2 "
 pkill -f "$W/broker.conf" 2>/dev/null || true
+sleep 1 # let the restarted broker free its ports
+
+echo "== 9. Negative: expired and not yet valid server certificate (date check)"
+for c in expired notyet; do
+    start_broker $c
+    run_device 4
+    save_log $c
+    check "$c certificate refused (-0x2700)" "TLS handshake error: -0x2700"
+    check_not "$c: no MQTT session" "MQTT connected"
+    stop_broker
+done
+
+echo "== 10. Negative: SNTP answers with a time before 2026 -> no network"
+kill "$SNTP" 2>/dev/null || true; wait "$SNTP" 2>/dev/null || true
+python3 "$HERE/sntp_server.py" 1123 -1000000000 &
+SNTP=$!
+sleep 0.5
+start_broker ecdsa
+run_device 4
+save_log badtime
+check "Implausible time rejected" "implausible time .* rejected"
+check "Network not reported up without time" "no time .* network stays down"
+check_not "No MQTT session" "MQTT connected"
+stop_broker
+kill "$SNTP" 2>/dev/null || true
 
 echo
 echo "Result: $PASS passed, $FAIL failed. Logs: $W"

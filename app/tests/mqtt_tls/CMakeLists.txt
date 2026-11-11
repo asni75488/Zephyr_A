@@ -1,8 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# Zephyr_A - native_sim test of the MQTT/TLS client (mqtt_client.c) against a
-# real Mosquitto broker on the host (Native Simulator offloaded sockets).
-# Run with run.sh (it creates the test PKI and starts the broker).
+# Zephyr_A - native_sim end-to-end test of the cloud path against a real
+# Mosquitto broker on the host (Native Simulator offloaded sockets):
+#   app_logic -> sparkplug (nanopb) -> mqtt_client (TLS) -> Mosquitto
+#   timesync (SNTP from a local test server) -> TLS certificate date check
+# Run with run.sh (it creates the test PKI, starts SNTP and the broker).
 #
 # The TLS/MQTT Kconfig block is taken from app/prj.conf (between the
 # ">>> mqtt-tls" and "<<< mqtt-tls" markers), so the test always uses exactly
@@ -35,9 +37,11 @@ target_sources(app PRIVATE
     src/main.c
     src/stubs.c
     ${ZEPHYR_A_APP}/src/mqtt_client.c
-    ${ZEPHYR_A_APP}/src/mqtt_selftest.c
     ${ZEPHYR_A_APP}/src/tls_ca.c
     ${ZEPHYR_A_APP}/src/sparkplug.c
+    ${ZEPHYR_A_APP}/src/app_logic.c
+    ${ZEPHYR_A_APP}/src/timesync.c
+    ${ZEPHYR_A_APP}/src/proto/sparkplug_b.pb.c
 )
 target_include_directories(app PRIVATE ${ZEPHYR_A_APP}/src)
 zephyr_include_directories(${ZEPHYR_A_APP}/config)

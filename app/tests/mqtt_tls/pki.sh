@@ -56,6 +56,40 @@ openssl x509 -req -in wrongname-leaf.csr -CA ecdsa-int.pem -CAkey ecdsa-int.key 
 cp ecdsa-int.key wrongname-int.key
 cat wrongname-leaf.pem ecdsa-int.pem > wrongname-fullchain.pem
 
+# Leaves outside their validity period, signed by the trusted ECDSA
+# intermediate (Mbed TLS date check, CONFIG_MBEDTLS_HAVE_TIME_DATE).
+mkdir -p ca-db
+: > ca-db/index.txt
+echo 1000 > ca-db/serial
+cat > ca.cnf <<EOF2
+[ ca ]
+default_ca = d
+[ d ]
+database = ca-db/index.txt
+serial = ca-db/serial
+new_certs_dir = ca-db
+default_md = sha384
+policy = p
+unique_subject = no
+[ p ]
+commonName = supplied
+[ ext ]
+basicConstraints = critical,CA:FALSE
+keyUsage = critical,digitalSignature
+extendedKeyUsage = serverAuth
+subjectAltName = DNS:$HOST
+EOF2
+dated_leaf() { # <name> <start> <end>
+    key "$1-leaf.key" ecdsa256
+    openssl req -new -key "$1-leaf.key" -subj "/CN=$HOST" -out "$1-leaf.csr"
+    openssl ca -batch -config ca.cnf -cert ecdsa-int.pem -keyfile ecdsa-int.key \
+        -in "$1-leaf.csr" -out "$1-leaf.pem" -startdate "$2" -enddate "$3" \
+        -extensions ext -notext 2>/dev/null
+    cat "$1-leaf.pem" ecdsa-int.pem > "$1-fullchain.pem"
+}
+dated_leaf expired 20240101000000Z 20240401000000Z
+dated_leaf notyet 20350101000000Z 20350401000000Z
+
 # Pad the served chains like the real Let's Encrypt chains (cross-signed roots),
 # so the record sizes the device receives are realistic.
 if [ -n "$PAD" ]; then
@@ -76,7 +110,7 @@ der_size() { # total DER size of all certificates in a PEM file
     echo "$total"
 }
 
-for n in ecdsa rsa rogue wrongname; do
+for n in ecdsa rsa rogue wrongname expired notyet; do
     printf '%-10s served chain: %s certs, %s B DER\n' "$n" "$(grep -c BEGIN "$n-fullchain.pem")" \
         "$(der_size "$n-fullchain.pem")"
 done
