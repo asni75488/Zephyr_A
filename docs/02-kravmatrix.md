@@ -10,7 +10,7 @@ out of scope) samt arbejdsreglerne for projektet. Matrixen opdateres i slutninge
 7 Sparkplug B + tid · 8 Sikkerhed (IEC 62443-4-2 / CRA) · 9 Lavt strøm/data + LP-kerne ·
 10 Nice to have · 11 Afslutning
 
-*Sidst opdateret: Del 4.* (Projekt A-, nice-to-have- og procesafsnittene blev ved en fejl fjernet i Del 3 og er genskabt i Del 4.)
+*Sidst opdateret: Del 5.*
 
 ## Generelle krav
 
@@ -29,7 +29,7 @@ out of scope) samt arbejdsreglerne for projektet. Matrixen opdateres i slutninge
 | G-11 | Modulopdelt, hvert modul egen `.c` og `.h` | 9 moduler + `app_types.h` | `app/src/*` | 2 | ✅ | Skelet bygger. Én `.c/.h` pr. modul |
 | G-12 | Mappestruktur efter Micro Technics eksempel | `app.overlay`, `CMakeLists.txt`, `Kconfig.sysbuild`, `prj.conf`, `sample.yaml`, `sysbuild.cmake`, `src/`, `remote/` | `app/` | 1 | ✅ | Review |
 | G-13 | LP-core-kode i `remote/` (`boards/esp32c6_devkitc_lpcore.overlay`, `CMakeLists.txt`, `prj.conf`, `src/main_ULP.c`) | Sysbuild `ExternalZephyrProject_Add`, board `esp32c6_devkitc/esp32c6/lpcore` | `app/remote/`, `app/sysbuild.cmake` | 9 | ⬜ | Build af begge images. LP-kerne vækker HP-kerne |
-| G-14 | TLS (self-signed CA eller Let's Encrypt/certbot) | Let's Encrypt via certbot (serveren har domænet `zephyra.vps.webdock.cloud`). Mbed TLS 4.1 + PSA | `mqtt_client.c`, `cloud/` | 5–6 | ⬜ | Broker afviser plain MQTT. Enhed forbinder kun med gyldigt cert |
+| G-14 | TLS (self-signed CA eller Let's Encrypt/certbot) | Let's Encrypt via certbot (serveren har domænet `zephyra.vps.webdock.cloud`). Mbed TLS 4.1 + PSA | `mqtt_client.c`, `cloud/` | 5–6 | 🟡 | Server-del lavet i Del 5 (Mosquitto 8883, TLS ≥ 1.2, plain afvist – testet på Mosquitto 2.0.18). Enhedsdel i Del 6 |
 | G-15 | MQTT | Zephyr MQTT-bibliotek (3.1.1) over TLS-socket | `mqtt_client.c` | 6 | ⬜ | Beskeder ses på brokeren (`mosquitto_sub`) |
 | G-16 | Modbus RTU/TCP til dataopsamling | Modbus RTU-klient (Zephyr `modbus`, client) på `uart0` → RS485 (GPIO20/21, DE/RE GPIO23). Registertabel med skalering, Kconfig for slave/baud/paritet/timeout/retries | `modbus.c/.h`, `modbus-rtu.overlay`, `overlay-modbus-rtu.conf` | 3 | 🟡 | Bygget + simuleret (native_sim). Test mod ModbusTools/Modbus Slave via USB-RS485: `03-dataopsamling.md` §5.3 |
 | G-17 | Sparkplug B (`spBv1.0`) som beskedstandard | nanopb + Tahu `sparkplug_b.proto`. NBIRTH/DBIRTH/DDATA/NDEATH, bdSeq/seq | `sparkplug.c/.h` | 7 | 🟡 | Topic-builder i skelet. Decode i Node-RED/Sparkplug-værktøj |
@@ -62,7 +62,7 @@ out of scope) samt arbejdsreglerne for projektet. Matrixen opdateres i slutninge
 | A-02 | Sikker kommunikation (TLS) | Se G-14. Serverens certifikat verificeres mod CA. Hostname-check (SNI) | `mqtt_client.c` | 6 | ⬜ | Forkert CA → forbindelse afvises (negativ test) |
 | A-03 | Lavt strømforbrug via sleep modes eller interrupts | PM light sleep i idle, event-drevne tråde (sensor blokerer på `k_sem` fra `k_timer`, network venter på `k_event`, interrupt-drevet modem-UART), modem PSM/eDRX, deep sleep + LP-kerne | `power.c`, `sensor.c`, `network.c`, `remote/` | 3, 4, 9 | 🟡 | Multimetermåling før/efter (mA) |
 | A-04 | Lavt dataforbrug via batching eller små payloads | Batch 6 målinger/DDATA (batching i `app_logic` ✔ Del 3), protobuf, metric aliases, QoS 0, lang keep-alive | `app_logic.c`, `sparkplug.c` | 3, 7, 9 | 🟡 | Bytes/døgn (Onomondo) med og uden batching |
-| A-05 | SKAL bruge egen cloud-server til dataopsamling | Webdock VPS `zephyra.vps.webdock.cloud`: Mosquitto + Node-RED | `cloud/` | 5 | ⬜ | Data modtages og vises på serveren |
+| A-05 | SKAL bruge egen cloud-server til dataopsamling | Webdock VPS `zephyra.vps.webdock.cloud`: Mosquitto + Node-RED | `cloud/` | 5 | 🟡 | Server-opsætning og testpublisher lavet i Del 5. Afventer kørsel på VPS og data fra enheden |
 | A-06 | Dataopsamling med fast interval (5–15 s) | `APP_SAMPLE_INTERVAL_MS` (range 5000–15000, standard 10000). Periodisk `k_timer` → `k_sem` → sensor-tråd. Runtime-ændring valideres også (5–15 s) | `sensor.c`, `app_logic.c`, `app/Kconfig` | 2–3 | 🟡 | Kconfig afviser 20000 (Del 2). native_sim: præcis 5,000 s mellem målinger, også efter fejlcyklus. Mangler: hardwaretest |
 | A-07 | Data sendes i MQTT som Sparkplug B | Se G-17 | `sparkplug.c` | 7 | ⬜ | |
 | A-08 | IEC 62443-4-2 og/eller CRA Annex I (1.c fortrolighed, 1.d integritet) kan redegøres for | Mapping-dokument. Fx CR 4.1 / CRA 1.c (TLS-kryptering), CR 3.1 / CRA 1.d (TLS-integritet, MCUboot), CR 1.x (MQTT-autentifikation) | `docs/08-sikkerhed.md` | 8 | ⬜ | Review |
@@ -75,7 +75,7 @@ out of scope) samt arbejdsreglerne for projektet. Matrixen opdateres i slutninge
 |---|---|---|---|---|---|---|
 | N-01 | Kommandoer fra cloud via MQTT/Sparkplug (NCMD) | Rebirth, Reboot, Sample Interval, Batch Size → `cmd_q` → `app_logic` | `sparkplug.c`, `app_logic.c` | 7/10 | 🟡 | Send NCMD fra Node-RED → ændring i log |
 | N-02 | OTA | MCUboot (allerede bootloader) + download over MQTT/HTTP | – | 10 | ⬜ | |
-| N-03 | Dashboard | Node-RED dashboard på VPS'en | `cloud/node-red/` | 5/10 | ⬜ | |
+| N-03 | Dashboard | Node-RED dashboard på VPS'en | `cloud/node-red/` | 5/10 | 🟡 | Node-RED Dashboard 2.0 med graf + seneste besked (Del 5). Udvides i Del 10 |
 | N-04 | mTLS | Klientcertifikat på enheden, `require_certificate` i Mosquitto | `mqtt_client.c`, `certs/` | 10 | ⬜ | |
 | N-05 | Bootloader-verifikation (MCUboot) | Signering slået til (`SB_CONFIG_BOOT_SIGNATURE_TYPE_*`), nøgle uden for git | `sysbuild` | 10 | ⬜ | Usigneret image afvises |
 | N-06 | Memory layout-diagram | Fra `build/*/zephyr.map` + partitionstabel (4 MB) | `docs/` | 11 | ⬜ | |

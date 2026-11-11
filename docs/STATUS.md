@@ -7,8 +7,8 @@ Opdateres i slutningen af hver del. Detaljeret kravstatus: [02-kravmatrix.md](02
 | 1 | Udviklingsmiljø Windows 11 + repo-skelet | `del-01-setup` | ✅ Godkendt |
 | 2 | Design: arkitektur, tråde, IPC, pin-plan, kravmatrix, modul-skelet | `del-02-design` | ✅ Godkendt |
 | 3 | Dataopsamling: intern temperatursensor, Modbus RTU, simulering | `del-03-dataopsamling` | Færdig – **ikke testet på hardware endnu** (bruger gik videre til Del 4) |
-| 4 | Cellulært netværk (SIM7080G, CMUX, PPP) | `del-04-netvaerk` | Færdig – afventer test og godkendelse |
-| 5 | Cloud-server (Webdock: SSH, Mosquitto, Let's Encrypt, Node-RED) | – | Ikke startet |
+| 4 | Cellulært netværk (SIM7080G, CMUX, PPP) | `del-04-netvaerk` | Færdig – **ikke testet på hardware endnu** (bruger gik videre til Del 5) |
+| 5 | Cloud-server (Webdock: SSH, Mosquitto, Let's Encrypt, Node-RED) | `del-05-cloud` | Færdig – afventer kørsel på VPS og godkendelse |
 | 6 | MQTT + TLS (Mbed TLS 4.1/PSA) | – | Ikke startet |
 | 7 | Sparkplug B (nanopb) + tidssynkronisering (UTC-tidsstempler) | – | Ikke startet |
 | 8 | Sikkerhed: IEC 62443-4-2 / CRA | – | Ikke startet |
@@ -17,6 +17,34 @@ Opdateres i slutningen af hver del. Detaljeret kravstatus: [02-kravmatrix.md](02
 | 11 | Afslutning: test, memory layout, rapportmateriale | – | Ikke startet |
 
 Delene blev omnummereret i Del 3 (dataopsamling før netværk).
+
+## Del 5 – lavet
+
+- `cloud/scripts/` (bash, kan køres igen): 10-base (pakker, auto-opdateringer, NTP), 20-firewall (UFW 22/80/443/1880/8883,
+  FTP lukket), 30-certs (Webdocks Let's Encrypt-cert + deploy-hook), 40-mosquitto, 50-nodered, 60-add-device, 90-verify
+- Mosquitto: TLS ≥ 1.2 på 8883, 1883 kun på localhost, ingen anonyme, password pr. enhed, ACL med `pattern ... %u`
+  (brugernavn = Sparkplug edge node-id)
+- Let's Encrypt deploy-hook kopierer fornyede certifikater til Mosquitto og Node-RED med rigtige rettigheder
+- Node-RED 5 + Dashboard 2.0: HTTPS, login til editor og dashboard (bcrypt), `credentialSecret`, flow med
+  Sparkplug B-dekoder (aliaser, batch-tidsstempler), datalog (JSON Lines pr. dag), graf og seneste besked
+- `cloud/tools/spb-test-publisher.js`: simuleret edge node (TLS-verifikation, NBIRTH/DBIRTH/DDATA-batch, NDEATH som will)
+- `docs/05-cloud.md`: trin for trin (SSH-nøgle fra Windows, passwordskift, scripts, Node-RED-import, test), sikkerhedsvalg,
+  fejlsøgning og vedligehold
+- Beslutning til Del 7: metric-værdier sendes som Float i °C
+
+### Verificeret (i udviklingsmiljøet, ikke på VPS'en)
+
+- Mosquitto 2.0.18 med repoets config/ACL: anonym/forkert password afvist, TLS 1.1 og plain afvist, ACL forhindrer
+  forfalskning og aflytning, Last Will NDEATH leveres, 1883 kun på 127.0.0.1
+- Fund: nøgle skal være `root:mosquitto 0640`, passwd/acl `mosquitto 0600` (Mosquitto skifter bruger før indlæsning)
+- Deploy-hook, Node-RED-settings (med rigtig bcrypt-hash) og `decode.js` (unit-test) afprøvet. ShellCheck uden fund
+- **Ikke afprøvet:** import af `flows.json` i en kørende Node-RED (npm ikke tilgængeligt herfra)
+
+### Mangler (på serveren)
+
+- [ ] Del 5-tjeklisten i `05-cloud.md` §4 (SSH-nøgle, passwords skiftet, `90-verify.sh`, testpublisher → dashboard)
+- [ ] Certifikatkæden fra `30-certs.sh` sendes til Claude (bestemmer rod-CA på enheden i Del 6)
+- [ ] Del 3- og Del 4-tests på hardware
 
 ## Del 4 – lavet
 
@@ -89,6 +117,7 @@ Delene blev omnummereret i Del 3 (dataopsamling før netværk).
 - Modbus RTU-varianten flytter console til USB-porten (USB Serial/JTAG). Den rigtige Modbus-kilde/slave er
   stadig ikke kendt. Registertabellen i `modbus.c` er et eksempel (holding 0–1, 0,1-skalering).
 - Batches kasseres i `app_logic`, indtil Sparkplug er implementeret (Del 7).
+- **Webdock:** passwords til admin/MySQL/FTP var synlige på et skærmbillede. Skal skiftes (05-cloud.md §3.1).
 - Pc'en har ældre installationer (`C:\zephyrproject`, `C:\Users\paulm\zephyrproject`). De bruges ikke.
 
 ## Del 2 – resumé
