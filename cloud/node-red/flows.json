@@ -1,0 +1,317 @@
+[
+  {
+    "id": "a1f0c0de00000001",
+    "type": "tab",
+    "label": "Zephyr_A Sparkplug",
+    "disabled": false,
+    "info": "Projekt A (Micro Technic): Sparkplug B from the ESP32-C6 edge nodes.\nMQTT (local Mosquitto) -> decode -> data log (JSON Lines) + dashboard.\nSee docs/05-cloud.md in the Zephyr_A repository."
+  },
+  {
+    "id": "a1f0c0de00000002",
+    "type": "comment",
+    "z": "a1f0c0de00000001",
+    "name": "After import: double-click the MQTT node -> broker 'Mosquitto (local)' -> Security: user 'nodered' + its password, then Deploy",
+    "info": "The broker password is not part of flows.json (Node-RED stores credentials separately, encrypted with credentialSecret).",
+    "x": 420,
+    "y": 40,
+    "wires": []
+  },
+  {
+    "id": "a1f0c0de00000003",
+    "type": "mqtt-broker",
+    "name": "Mosquitto (local)",
+    "broker": "127.0.0.1",
+    "port": "1883",
+    "clientid": "nodered-zephyr_a",
+    "autoConnect": true,
+    "usetls": false,
+    "protocolVersion": "4",
+    "keepalive": "60",
+    "cleansession": true,
+    "autoUnsubscribe": true,
+    "birthTopic": "",
+    "birthQos": "0",
+    "birthRetain": "false",
+    "birthPayload": "",
+    "birthMsg": {},
+    "closeTopic": "",
+    "closeQos": "0",
+    "closeRetain": "false",
+    "closePayload": "",
+    "closeMsg": {},
+    "willTopic": "",
+    "willQos": "0",
+    "willRetain": "false",
+    "willPayload": "",
+    "willMsg": {},
+    "userProps": "",
+    "sessionExpiry": ""
+  },
+  {
+    "id": "a1f0c0de00000004",
+    "type": "mqtt in",
+    "z": "a1f0c0de00000001",
+    "name": "spBv1.0/ProjektA/#",
+    "topic": "spBv1.0/ProjektA/#",
+    "qos": "1",
+    "datatype": "buffer",
+    "broker": "a1f0c0de00000003",
+    "nl": false,
+    "rap": true,
+    "rh": 0,
+    "inputs": 0,
+    "x": 150,
+    "y": 120,
+    "wires": [
+      [
+        "a1f0c0de00000005"
+      ]
+    ]
+  },
+  {
+    "id": "a1f0c0de00000005",
+    "type": "function",
+    "z": "a1f0c0de00000001",
+    "name": "Sparkplug B decode",
+    "func": "// Zephyr_A - Sparkplug B decoder (body of the Node-RED function node\n// \"Sparkplug B decode\" in flows.json; kept here as a file so it can be\n// reviewed and unit-tested: cloud/node-red/test/decode.test.js).\n//\n// In:  msg.topic   spBv1.0/<group>/<type>/<edge_node>[/<device>]\n//      msg.payload Buffer (Sparkplug B protobuf)\n// Out: [1] full record as JSON (data log file + debug)\n//      [2] one message per numeric data metric (chart): topic=name,\n//          payload=value, timestamp=metric timestamp (ms, UTC)\n//      [3] status text for the dashboard\n// \"sparkplug\" is the npm module sparkplug-payload (Setup -> Modules).\n\nconst parts = (msg.topic || '').split('/');\nif (parts.length < 4 || parts[0] !== 'spBv1.0') {\n    return null;\n}\nconst [, group, type, edge, device] = parts;\n\nlet p;\ntry {\n    p = sparkplug.get('spBv1.0').decodePayload(msg.payload);\n} catch (err) {\n    node.error('Sparkplug decode failed on ' + msg.topic + ': ' + err.message, msg);\n    node.status({ fill: 'red', shape: 'ring', text: 'decode error ' + type });\n    return null;\n}\n\n// 64-bit fields (timestamps, seq, bdSeq) are decoded as Long objects.\nconst num = (v) => {\n    if (v === null || v === undefined) return v;\n    if (typeof v === 'object' && typeof v.toNumber === 'function') return v.toNumber();\n    if (typeof v === 'bigint') return Number(v);\n    return v;\n};\n\n// Metric aliases: names are only sent in NBIRTH/DBIRTH; DATA uses aliases.\nconst key = group + '/' + edge + '/' + (device || '');\nconst aliases = flow.get('aliases') || {};\nif (type === 'NBIRTH' || type === 'DBIRTH') {\n    aliases[key] = {};\n    for (const m of (p.metrics || [])) {\n        if (m.alias !== undefined && m.alias !== null && m.name) {\n            aliases[key][String(num(m.alias))] = m.name;\n        }\n    }\n    flow.set('aliases', aliases);\n}\nconst map = aliases[key] || {};\n\nconst ts = num(p.timestamp);\nconst metrics = (p.metrics || []).map((m) => {\n    const alias = (m.alias !== undefined && m.alias !== null) ? num(m.alias) : undefined;\n    return {\n        name: m.name || map[String(alias)] || ('alias:' + alias),\n        alias: alias,\n        type: m.type,\n        value: num(m.value),\n        timestamp: (m.timestamp !== undefined && m.timestamp !== null) ? num(m.timestamp) : ts\n    };\n});\n\nconst record = {\n    received: Date.now(),\n    group: group,\n    type: type,\n    edge: edge,\n    device: device || null,\n    seq: num(p.seq),\n    timestamp: ts,\n    metrics: metrics\n};\n\n// Chart: numeric process values only (no control/bookkeeping metrics).\nconst isData = (type === 'DDATA' || type === 'NDATA' || type === 'DBIRTH');\nconst points = isData ? metrics\n    .filter((m) => typeof m.value === 'number' &&\n        !m.name.startsWith('Node Control/') && m.name !== 'bdSeq')\n    .map((m) => ({ topic: m.name, payload: m.value, timestamp: m.timestamp })) : [];\n\nconst dataDir = env.get('ZEPHYR_A_DATA_DIR') || '/tmp';\nconst day = new Date().toISOString().slice(0, 10);\n\nnode.status({ fill: 'green', shape: 'dot', text: type + ' ' + edge + ' (' + metrics.length + ')' });\n\nreturn [\n    { payload: record, filename: dataDir + '/sparkplug-' + day + '.jsonl' },\n    points,\n    { payload: new Date(record.received).toISOString() + '  ' + type + '  ' + edge +\n        (device ? '/' + device : '') + '  ' + metrics.length + ' metric(s)' }\n];\n",
+    "outputs": 3,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [
+      {
+        "var": "sparkplug",
+        "module": "sparkplug-payload"
+      }
+    ],
+    "outputLabels": [
+      "record (log)",
+      "chart points",
+      "status text"
+    ],
+    "x": 390,
+    "y": 120,
+    "wires": [
+      [
+        "a1f0c0de00000006",
+        "a1f0c0de00000007"
+      ],
+      [
+        "a1f0c0de0000000c"
+      ],
+      [
+        "a1f0c0de0000000d"
+      ]
+    ]
+  },
+  {
+    "id": "a1f0c0de00000006",
+    "type": "debug",
+    "z": "a1f0c0de00000001",
+    "name": "Sparkplug record",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "payload",
+    "targetType": "msg",
+    "statusVal": "",
+    "statusType": "auto",
+    "x": 640,
+    "y": 80,
+    "wires": []
+  },
+  {
+    "id": "a1f0c0de00000007",
+    "type": "file",
+    "z": "a1f0c0de00000001",
+    "name": "Data log (JSON Lines, one file per day)",
+    "filename": "filename",
+    "filenameType": "msg",
+    "appendNewline": true,
+    "createDir": true,
+    "overwriteFile": "false",
+    "encoding": "none",
+    "x": 690,
+    "y": 120,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "a1f0c0de00000008",
+    "type": "ui-base",
+    "name": "Zephyr_A",
+    "path": "/dashboard",
+    "appIcon": "",
+    "includeClientData": true,
+    "acceptsClientConfig": [
+      "ui-notification",
+      "ui-control"
+    ],
+    "showPathInSidebar": false,
+    "headerContent": "page",
+    "navigationStyle": "default",
+    "titleBarStyle": "default",
+    "showReconnectNotification": true,
+    "notificationDisplayTime": 1,
+    "showDisconnectNotification": true,
+    "allowInstall": false
+  },
+  {
+    "id": "a1f0c0de00000009",
+    "type": "ui-theme",
+    "name": "Zephyr_A theme",
+    "colors": {
+      "surface": "#fcfcfd",
+      "primary": "#0d74ce",
+      "bgPage": "#f9f9fb",
+      "groupBg": "#ffffff",
+      "groupOutline": "#d9d9e0"
+    },
+    "sizes": {
+      "density": "default",
+      "pagePadding": "12px",
+      "groupGap": "12px",
+      "groupBorderRadius": "4px",
+      "widgetGap": "12px"
+    }
+  },
+  {
+    "id": "a1f0c0de0000000a",
+    "type": "ui-page",
+    "name": "Projekt A",
+    "ui": "a1f0c0de00000008",
+    "path": "/projekt-a",
+    "icon": "chart-line",
+    "layout": "grid",
+    "theme": "a1f0c0de00000009",
+    "breakpoints": [
+      {
+        "name": "Default",
+        "px": 0,
+        "cols": 3
+      },
+      {
+        "name": "Tablet",
+        "px": 576,
+        "cols": 6
+      },
+      {
+        "name": "Small Desktop",
+        "px": 768,
+        "cols": 9
+      },
+      {
+        "name": "Desktop",
+        "px": 1024,
+        "cols": 12
+      }
+    ],
+    "order": 1,
+    "className": "",
+    "visible": "true",
+    "disabled": "false"
+  },
+  {
+    "id": "a1f0c0de0000000b",
+    "type": "ui-group",
+    "name": "Målinger (Sparkplug B)",
+    "page": "a1f0c0de0000000a",
+    "width": 12,
+    "height": 1,
+    "order": 1,
+    "showTitle": true,
+    "className": "",
+    "visible": "true",
+    "disabled": "false",
+    "groupType": "default"
+  },
+  {
+    "id": "a1f0c0de0000000c",
+    "type": "ui-chart",
+    "z": "a1f0c0de00000001",
+    "group": "a1f0c0de0000000b",
+    "name": "Measurements",
+    "label": "Seneste 24 timer",
+    "order": 2,
+    "chartType": "line",
+    "category": "topic",
+    "categoryType": "msg",
+    "xAxisLabel": "",
+    "xAxisProperty": "timestamp",
+    "xAxisPropertyType": "msg",
+    "xAxisType": "time",
+    "xAxisFormat": "",
+    "xAxisFormatType": "auto",
+    "xmin": "",
+    "xmax": "",
+    "yAxisLabel": "",
+    "yAxisProperty": "payload",
+    "yAxisPropertyType": "msg",
+    "ymin": "",
+    "ymax": "",
+    "bins": 10,
+    "action": "append",
+    "stackSeries": false,
+    "pointShape": "circle",
+    "pointRadius": 3,
+    "showLegend": true,
+    "removeOlder": 24,
+    "removeOlderUnit": "3600",
+    "removeOlderPoints": "",
+    "colors": [
+      "#0095FF",
+      "#FF0000",
+      "#FF7F0E",
+      "#2CA02C",
+      "#A347E1",
+      "#D62728",
+      "#FF9896",
+      "#9467BD",
+      "#C5B0D5"
+    ],
+    "textColor": [
+      "#666666"
+    ],
+    "textColorDefault": true,
+    "gridColor": [
+      "#e5e5e5"
+    ],
+    "gridColorDefault": true,
+    "width": 12,
+    "height": 8,
+    "className": "",
+    "interpolation": "linear",
+    "x": 650,
+    "y": 160,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "a1f0c0de0000000d",
+    "type": "ui-text",
+    "z": "a1f0c0de00000001",
+    "group": "a1f0c0de0000000b",
+    "order": 1,
+    "width": 12,
+    "height": 1,
+    "name": "Last message",
+    "label": "Seneste besked",
+    "format": "{{msg.payload}}",
+    "layout": "row-spread",
+    "style": false,
+    "font": "Helvetica",
+    "fontSize": 16,
+    "color": "#717171",
+    "wrapText": false,
+    "className": "",
+    "value": "payload",
+    "valueType": "msg",
+    "x": 630,
+    "y": 200,
+    "wires": []
+  }
+]
