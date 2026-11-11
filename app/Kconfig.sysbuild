@@ -1,0 +1,13 @@
+# Zephyr_A - sysbuild Kconfig
+#
+# Sysbuild builds several images in one go: the MCUboot bootloader (default
+# for esp32c6_devkitc), the HP-core application and later the LP-core image
+# in remote/.
+#
+# SPDX-License-Identifier: Apache-2.0
+
+source "share/sysbuild/Kconfig"
+
+# The LP-core target (ULP_REMOTE_BOARD, "esp32c6_devkitc/esp32c6/lpcore") is
+# added here in the LP-core part, following Zephyr's
+# samples/boards/espressif/ulp/lp_core/* samples.
