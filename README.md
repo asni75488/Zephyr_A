@@ -39,8 +39,11 @@ zephyr_a/                 <- west manifest-repo (T2) – ligger i C:\zp\zephyr_a
 │   ├── sample.yaml       Twister-metadata
 │   ├── sysbuild.cmake    Tilføjer LP-core-image (remote/) senere
 │   ├── VERSION           Firmware-version
-│   ├── secrets.conf.example
+│   ├── secrets.conf.example  Skabelon til app/secrets.conf (MQTT-password, ignoreres af git)
+│   ├── ca/               Rodcertifikater (ISRG) som enheden stoler på - offentlige
+│   ├── cmake/, config/   CA-indlejring, Mbed TLS-tilpasning
 │   ├── src/              main.c + moduler (.c/.h pr. modul)
+│   ├── tests/            Test på native_sim (mqtt_tls: TLS mod rigtig Mosquitto)
 │   └── remote/           LP-core (ULP) image
 ├── certs/                Lokale certifikater/nøgler (ignoreres af git)
 ├── cloud/                Server: Mosquitto, Node-RED

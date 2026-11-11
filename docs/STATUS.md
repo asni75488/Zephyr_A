@@ -8,8 +8,8 @@ Opdateres i slutningen af hver del. Detaljeret kravstatus: [02-kravmatrix.md](02
 | 2 | Design: arkitektur, tråde, IPC, pin-plan, kravmatrix, modul-skelet | `del-02-design` | ✅ Godkendt |
 | 3 | Dataopsamling: intern temperatursensor, Modbus RTU, simulering | `del-03-dataopsamling` | Færdig – **ikke testet på hardware endnu** (bruger gik videre til Del 4) |
 | 4 | Cellulært netværk (SIM7080G, CMUX, PPP) | `del-04-netvaerk` | Færdig – **ikke testet på hardware endnu** (bruger gik videre til Del 5) |
-| 5 | Cloud-server (Webdock: SSH, Mosquitto, Let's Encrypt, Node-RED) | `del-05-cloud` | Færdig – afventer kørsel på VPS og godkendelse |
-| 6 | MQTT + TLS (Mbed TLS 4.1/PSA) | – | Ikke startet |
+| 5 | Cloud-server (Webdock: SSH, Mosquitto, Let's Encrypt, Node-RED) | `del-05-cloud` | Færdig – **ikke kørt på VPS endnu** (bruger gik videre til Del 6) |
+| 6 | MQTT + TLS (Mbed TLS 4.1/PSA) | `del-06-mqtt-tls` | Færdig – testet på native_sim, afventer hardwaretest og godkendelse |
 | 7 | Sparkplug B (nanopb) + tidssynkronisering (UTC-tidsstempler) | – | Ikke startet |
 | 8 | Sikkerhed: IEC 62443-4-2 / CRA | – | Ikke startet |
 | 9 | Lavt strøm- og dataforbrug, LP-kerne (`remote/`) | – | Ikke startet |
@@ -17,6 +17,37 @@ Opdateres i slutningen af hver del. Detaljeret kravstatus: [02-kravmatrix.md](02
 | 11 | Afslutning: test, memory layout, rapportmateriale | – | Ikke startet |
 
 Delene blev omnummereret i Del 3 (dataopsamling før netværk).
+
+## Del 6 – lavet
+
+- `mqtt_client.c`: `mqtt`-tråd med tilstandsmaskine (IDLE → RESOLVING → CONNECTING → CONNECTED, BACKOFF), MQTT 3.1.1
+  over TLS, brugernavn = enheds-id, password fra `secrets.conf`, Last Will (klar til NDEATH), subscribe NCMD/DCMD
+  (QoS 1, PUBACK), publish-kø (`k_msgq` + `k_mem_slab`), eventfd-wakeup i `zsock_poll()` (ingen polling), keep-alive
+  med PINGRESP-timeout, link-tab via `NET_EVENT_L4_DISCONNECTED`, backoff 10–600 s med jitter (permanente fejl → max),
+  statistik
+- TLS: Mbed TLS 4.1 + PSA, TLS 1.3 (1.2 som reserve), ECDSA P-256/P-384 og RSA, 4 ISRG-rødder (YE, YR, X2, X1) som DER
+  i flash (`app/ca/`, `tls_ca.c`), værtsnavn-tjek, input 8 kB / output 2 kB, heap 56 kB
+- `mqtt_selftest.c`: Sparkplug B NDATA (Test/Uptime, Test/RSSI, Test/MQTT Connects) hvert minut (fjernes i Del 7)
+- `build.ps1`: `app\secrets.conf` tilføjes automatisk, ny `-TlsDebug`
+- `app/tests/mqtt_tls/`: test på native_sim mod Mosquitto 2.0.18 med Let's Encrypt-lignende kæder
+- `decode.js`/`flows.json`: modtagetid, når en besked ikke har tidsstempel
+- `docs/06-mqtt-tls.md`
+
+### Verificeret
+
+- Bygger uden compiler-warnings: standard (FLASH 8,7 %, RAM 37,4 %), `-TlsDebug`, `-ModemDebug -TlsDebug`,
+  `-ModbusRtu -Simulation`, og uden `secrets.conf`
+- native_sim mod Mosquitto 2.0.18: **24/24** (TLS 1.3 med ECDSA- og RSA-kæde, TLS 1.2 med ECDSA, data + NCMD,
+  link-tab, broker-genstart, afvisning af forkert CA, forkert værtsnavn, plain MQTT og forkert password)
+- Målt: Mbed TLS-heap peak 32 kB (ECDSA) / 37 kB (RSA). Ny forbindelse ca. 0,7 kB op / 3,9–4,8 kB ned. NDATA 170 B
+- Fund: RSA-PSS kræver `MBEDTLS_X509_RSASSA_PSS_SUPPORT` + `PSA_WANT_ALG_RSA_OAEP`. For lille heap giver `-0x2700`
+  "not trusted". TLS 1.2 + RSA mod OpenSSL virker ikke i Mbed TLS 4.1 (TLS 1.3 bruges)
+
+### Mangler (hardware/server)
+
+- [ ] Del 6-tjeklisten i `06-mqtt-tls.md` §10 (kræver Del 5 på serveren)
+- [ ] Stack-forbrug og handshake-tid fra loggen sendes til Claude
+- [ ] Del 5-tjekliste på VPS'en, Del 3- og Del 4-tests på hardware
 
 ## Del 5 – lavet
 
@@ -43,7 +74,7 @@ Delene blev omnummereret i Del 3 (dataopsamling før netværk).
 ### Mangler (på serveren)
 
 - [ ] Del 5-tjeklisten i `05-cloud.md` §4 (SSH-nøgle, passwords skiftet, `90-verify.sh`, testpublisher → dashboard)
-- [ ] Certifikatkæden fra `30-certs.sh` sendes til Claude (bestemmer rod-CA på enheden i Del 6)
+- [ ] Certifikatkæden fra `30-certs.sh` sendes til Claude (bekræfter nøgletype og kæde; enheden stoler fra Del 6 på alle fire ISRG-rødder)
 - [ ] Del 3- og Del 4-tests på hardware
 
 ## Del 4 – lavet
@@ -106,8 +137,9 @@ Delene blev omnummereret i Del 3 (dataopsamling før netværk).
 
 ## Kendte problemer / noter
 
-- **Mbed TLS 4.1 (PSA):** TLS-Kconfig fra ældre guides virker ikke (deprecated symboler,
-  `PSA_WANT_*`-afhængigheder). Løses i del 6.
+- **Mbed TLS 4.1 (PSA):** løst i Del 6 (se `06-mqtt-tls.md` §7). Certifikatdatoer tjekkes først efter SNTP (Del 7).
+- **RNG:** ESP32-C6's hardware-RNG har kun fuld entropi med aktiv radio. Vurderes i Del 8.
+- **MQTT-password** ligger i klartekst i flash. Beskyttes i Del 8.
 - **`CONFIG_PM` + logging:** linkerfejl `log_const_soc` i Zephyr 4.4.0. Workaround verificeret
   (registrér log-modulet `soc` i app'en). Indføres i del 9.
 - **Modem uden PWRKEY:** `simcom,sim7080` kræver `mdm-power-gpios`. Pladsholder på GPIO22
@@ -116,7 +148,7 @@ Delene blev omnummereret i Del 3 (dataopsamling før netværk).
 - Sysbuild giver en harmløs Kconfig-warning om `MCUBOOT_UPDATE_FOOTER_SIZE` (kun relevant for OTA).
 - Modbus RTU-varianten flytter console til USB-porten (USB Serial/JTAG). Den rigtige Modbus-kilde/slave er
   stadig ikke kendt. Registertabellen i `modbus.c` er et eksempel (holding 0–1, 0,1-skalering).
-- Batches kasseres i `app_logic`, indtil Sparkplug er implementeret (Del 7).
+- Batches kasseres i `app_logic`, indtil Sparkplug er implementeret (Del 7). Indtil da sendes kun selvtest-NDATA.
 - **Webdock:** passwords til admin/MySQL/FTP var synlige på et skærmbillede. Skal skiftes (05-cloud.md §3.1).
 - Pc'en har ældre installationer (`C:\zephyrproject`, `C:\Users\paulm\zephyrproject`). De bruges ikke.
 

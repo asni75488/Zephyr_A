@@ -10,7 +10,7 @@ out of scope) samt arbejdsreglerne for projektet. Matrixen opdateres i slutninge
 7 Sparkplug B + tid · 8 Sikkerhed (IEC 62443-4-2 / CRA) · 9 Lavt strøm/data + LP-kerne ·
 10 Nice to have · 11 Afslutning
 
-*Sidst opdateret: Del 5.*
+*Sidst opdateret: Del 6.*
 
 ## Generelle krav
 
@@ -24,18 +24,18 @@ out of scope) samt arbejdsreglerne for projektet. Matrixen opdateres i slutninge
 | G-06 | Devicetree til hardware. Afvigelser i `.overlay` | `app/app.overlay` (coretemp, UART1 GPIO18/19, modem-node `simcom,sim7080` + `autostarts`, power-pladsholder GPIO22, alias `modem`). `app/modbus-rtu.overlay` (RS485 + console). Flash-variant via officiel snippet | `app/*.overlay`, `scripts/build.ps1` | 1–4 | 🟡 | Kontrolleret i genereret `zephyr.dts` (Del 3–4). Mangler: hardwaretest |
 | G-07 | ALLE afvigelser (fx GPIO/UART-pins) dokumenteres | Pin-tabel og afvigelser i `docs/hardware.md`, plan i `02-arkitektur.md` §6 | `docs/hardware.md` | 1–4 | 🟡 | Review: hver overlay-ændring har en række i `hardware.md` |
 | G-08 | Zephyrs egne API'er (netværk, modem, MQTT, Modbus, logging, PM) | `sensor` ✔, `modbus` (client) ✔, `log` ✔, `hwinfo` ✔, `k_timer`/`k_msgq`/`k_poll` ✔, `modem_cellular` + `cellular` API ✔, PPP/net stack/sockets ✔, `net_mgmt`/conn_mgr ✔, `pm_device` ✔. Senere: `mqtt`, `pm`, nanopb | alle moduler | 2–9 | 🟡 | Review: ingen egne AT-/socket-drivere |
-| G-09 | Multithreaded, ca. 1 thread pr. modul (netværk, app-logik, Sparkplug, MQTT) | Tråde: `sensor` ✔, `app_logic` ✔ (Del 3), `network` ✔ (Del 4). `mqtt`, `sparkplug` følger | `02-arkitektur.md` §3 | 2–7 | 🟡 | Thread analyzer / `kernel threads` viser trådene |
+| G-09 | Multithreaded, ca. 1 thread pr. modul (netværk, app-logik, Sparkplug, MQTT) | Tråde: `sensor` ✔, `app_logic` ✔ (Del 3), `network` ✔ (Del 4), `mqtt` ✔ (Del 6). `sparkplug` følger i Del 7 | `02-arkitektur.md` §3 | 2–7 | 🟡 | Thread analyzer / `kernel threads` viser trådene |
 | G-10 | Delte data beskyttes med mutex/semaphore/message queue | `k_msgq` meas_q/cmd_q ✔, `k_mutex` config ✔, `k_sem` sample_sem ✔, `k_spinlock` stats/state ✔, `k_event` net_events + interne events ✔, `atomic_t` registreringsstatus ✔. Senere: batch/tx/rx-køer, `k_mem_slab` | `02-arkitektur.md` §4 | 2–7 | 🟡 | native_sim: målinger går gennem `meas_q` til `app_logic` |
 | G-11 | Modulopdelt, hvert modul egen `.c` og `.h` | 9 moduler + `app_types.h` | `app/src/*` | 2 | ✅ | Skelet bygger. Én `.c/.h` pr. modul |
 | G-12 | Mappestruktur efter Micro Technics eksempel | `app.overlay`, `CMakeLists.txt`, `Kconfig.sysbuild`, `prj.conf`, `sample.yaml`, `sysbuild.cmake`, `src/`, `remote/` | `app/` | 1 | ✅ | Review |
 | G-13 | LP-core-kode i `remote/` (`boards/esp32c6_devkitc_lpcore.overlay`, `CMakeLists.txt`, `prj.conf`, `src/main_ULP.c`) | Sysbuild `ExternalZephyrProject_Add`, board `esp32c6_devkitc/esp32c6/lpcore` | `app/remote/`, `app/sysbuild.cmake` | 9 | ⬜ | Build af begge images. LP-kerne vækker HP-kerne |
-| G-14 | TLS (self-signed CA eller Let's Encrypt/certbot) | Let's Encrypt via certbot (serveren har domænet `zephyra.vps.webdock.cloud`). Mbed TLS 4.1 + PSA | `mqtt_client.c`, `cloud/` | 5–6 | 🟡 | Server-del lavet i Del 5 (Mosquitto 8883, TLS ≥ 1.2, plain afvist – testet på Mosquitto 2.0.18). Enhedsdel i Del 6 |
-| G-15 | MQTT | Zephyr MQTT-bibliotek (3.1.1) over TLS-socket | `mqtt_client.c` | 6 | ⬜ | Beskeder ses på brokeren (`mosquitto_sub`) |
+| G-14 | TLS (self-signed CA eller Let's Encrypt/certbot) | Let's Encrypt via certbot (serveren har domænet `zephyra.vps.webdock.cloud`). Mbed TLS 4.1 + PSA | `mqtt_client.c`, `cloud/` | 5–6 | 🟡 | Server: Del 5. Enhed: Del 6, TLS 1.3/1.2, kæde + værtsnavn verificeres mod 4 ISRG-rødder. Testet på native_sim mod Mosquitto 2.0.18 (24/24, inkl. forkert CA/navn/plain). Mangler: hardwaretest, datotjek (Del 7) |
+| G-15 | MQTT | Zephyr MQTT-bibliotek (3.1.1) over TLS-socket | `mqtt_client.c` | 6 | 🟡 | Del 6: `mqtt`-tråd, CONNECT/SUBSCRIBE/PUBLISH, Will, keep-alive, backoff. Testet på native_sim. Mangler: `mosquitto_sub` med rigtig enhed |
 | G-16 | Modbus RTU/TCP til dataopsamling | Modbus RTU-klient (Zephyr `modbus`, client) på `uart0` → RS485 (GPIO20/21, DE/RE GPIO23). Registertabel med skalering, Kconfig for slave/baud/paritet/timeout/retries | `modbus.c/.h`, `modbus-rtu.overlay`, `overlay-modbus-rtu.conf` | 3 | 🟡 | Bygget + simuleret (native_sim). Test mod ModbusTools/Modbus Slave via USB-RS485: `03-dataopsamling.md` §5.3 |
 | G-17 | Sparkplug B (`spBv1.0`) som beskedstandard | nanopb + Tahu `sparkplug_b.proto`. NBIRTH/DBIRTH/DDATA/NDEATH, bdSeq/seq | `sparkplug.c/.h` | 7 | 🟡 | Topic-builder i skelet. Decode i Node-RED/Sparkplug-værktøj |
 | G-18 | Logging via logging-subsystemet | `CONFIG_LOG`, deferred mode | alle `.c` | 1 | ✅ | Boot-log |
 | G-19 | SKAL logge: netværksstatus | `network` logger hver tilstandsovergang, registreringsstatus, IP-adresse, modem-info, DNS/TCP-tjek og periodisk status (RSSI) hvert 60. s | `network.c` | 4 | 🟡 | Forventet log i `04-netvaerk.md` §5.3. Mangler: hardwaretest |
-| G-20 | SKAL logge: cloud-forbindelse | `mqtt` logger connect/disconnect/fejl | `mqtt_client.c` | 6 | ⬜ | Log ved CONNACK og afbrydelse |
+| G-20 | SKAL logge: cloud-forbindelse | `mqtt` logger connect/disconnect/fejl | `mqtt_client.c` | 6 | 🟡 | Logger DNS, TLS-version/ciphersuite, CONNACK-fejl, session-slut, backoff, link-tab, stats. Testet på native_sim |
 | G-21 | SKAL logge: errors | `LOG_ERR` ved alle fejlstier (returkoder tjekkes). Del 3: sensorfejl, Modbus timeout/CRC/exception | alle | 1– | 🟡 | Simulerede fejl (`APP_SENSOR_SIM_FAULT_EVERY`) giver `LOG_ERR` (native_sim) |
 | G-22 | SKAL logge: custom logs | Device-id, reset-årsag, konfiguration, måling pr. cyklus (`meas #n`), `Batch #n ready` | `device_info.c`, `app_logic.c` | 1–3 | ✅ | Boot-log + målelog |
 | G-23 | Log levels korrekt | ERR = fejl, der kræver handling. WRN = afvigelse (fx brownout). INF = tilstandsskift. DBG = detaljer. `CONFIG_APP_LOG_LEVEL` | alle | 1– | 🟡 | Review |
@@ -59,7 +59,7 @@ out of scope) samt arbejdsreglerne for projektet. Matrixen opdateres i slutninge
 | ID | Krav | Hvordan det løses | Modul / fil | Del | Status | Test |
 |---|---|---|---|---|---|---|
 | A-01 | Cellulær forbindelse til cloud via udleveret SIM-kort | M5Stamp CAT-M (SIM7080G), `modem_cellular` (`simcom,sim7080`), CMUX + PPP, APN `onomondo`, forbindelsestjek (DNS + TCP til egen server), backoff, CMUX-recovery | `network.c`, `app.overlay`, `prj.conf` | 4 | 🟡 | Bygget. Hardwaretest: `04-netvaerk.md` §5.4 (IP, DNS, TCP, RESET-recovery, antenne af/på) |
-| A-02 | Sikker kommunikation (TLS) | Se G-14. Serverens certifikat verificeres mod CA. Hostname-check (SNI) | `mqtt_client.c` | 6 | ⬜ | Forkert CA → forbindelse afvises (negativ test) |
+| A-02 | Sikker kommunikation (TLS) | Se G-14. Serverens certifikat verificeres mod CA. Hostname-check (SNI) | `mqtt_client.c` | 6 | 🟡 | Negative tests bestået på native_sim: forkert CA og forkert værtsnavn → `-0x2700`, plain → fejl. Hostname-check via `TLS_HOSTNAME` (SNI sendes ikke). Mangler: hardware |
 | A-03 | Lavt strømforbrug via sleep modes eller interrupts | PM light sleep i idle, event-drevne tråde (sensor blokerer på `k_sem` fra `k_timer`, network venter på `k_event`, interrupt-drevet modem-UART), modem PSM/eDRX, deep sleep + LP-kerne | `power.c`, `sensor.c`, `network.c`, `remote/` | 3, 4, 9 | 🟡 | Multimetermåling før/efter (mA) |
 | A-04 | Lavt dataforbrug via batching eller små payloads | Batch 6 målinger/DDATA (batching i `app_logic` ✔ Del 3), protobuf, metric aliases, QoS 0, lang keep-alive | `app_logic.c`, `sparkplug.c` | 3, 7, 9 | 🟡 | Bytes/døgn (Onomondo) med og uden batching |
 | A-05 | SKAL bruge egen cloud-server til dataopsamling | Webdock VPS `zephyra.vps.webdock.cloud`: Mosquitto + Node-RED | `cloud/` | 5 | 🟡 | Server-opsætning og testpublisher lavet i Del 5. Afventer kørsel på VPS og data fra enheden |

@@ -157,7 +157,7 @@ Zephyr: **lavere tal = højere prioritet**. Prioriteter ≥ 0 er *preemptive*, n
 |---|---|---|---|---|---|---|
 | `sensor` | sensor | 4 | preemptive | 1536 B | **Periodisk** (`k_timer` → `k_sem`) | Højeste app-prioritet: målingen skal ske til tiden (fast interval). Arbejdet er kort (få ms), så den blokerer ikke andre |
 | `network` | network | 5 | preemptive | 2048 B | Event (net_mgmt-callbacks → `k_event`) | Skal hurtigt reagere på link op/ned, men laver kun lidt arbejde selv – driveren gør det tunge |
-| `mqtt` | mqtt_client | 6 | preemptive | 6144 B | Event (`zsock_poll` på socket + TX-kø, timeout = keep-alive) | TLS-handshake i Mbed TLS bruger meget stack. Under network, så link-hændelser behandles først |
+| `mqtt` | mqtt_client | 6 | preemptive | 8192 B (Del 6) | Event (`zsock_poll` på TLS-socket + eventfd, der signaleres af TX-køen og link-tab, timeout = keep-alive) | TLS-handshake i Mbed TLS bruger meget stack. Under network, så link-hændelser behandles først. Se `06-mqtt-tls.md` |
 | `app_logic` | app_logic | 7 | preemptive | 1536 B | Event (`k_poll` på sample- og kommando-kø) | Tidskritisk er kun at kø'en tømmes, før den er fuld (16 pladser = 160 s) |
 | `sparkplug` | sparkplug | 8 | preemptive | 3072 B | Event (`k_poll` på batch- og RX-kø) | Protobuf-encoding er CPU-arbejde uden deadline. Lavest, så den aldrig forsinker målinger eller netværk |
 | `main` | main | 0 | preemptive | 2048 B | Kun opstart | Initialiserer og starter trådene, kører derefter heartbeat (fjernes, når alle moduler er implementeret) |
