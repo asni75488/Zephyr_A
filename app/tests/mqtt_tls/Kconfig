@@ -1,0 +1,6 @@
+# Zephyr_A - test Kconfig: the application's own symbols (app/Kconfig,
+# which also sources Kconfig.zephyr). Test options are command line
+# arguments of zephyr.exe (-run_s, -link_loss_at), see src/main.c.
+# SPDX-License-Identifier: Apache-2.0
+
+rsource "../../Kconfig"
