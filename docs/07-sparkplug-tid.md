@@ -80,6 +80,7 @@ Topics: `spBv1.0/ProjektA/<type>/esp32c6-14c19fe0ab24[/sensors]`.
 | `Status/RSSI` | 7 | Int32 (dBm) | NBIRTH, NDATA | Signalstyrke |
 | `Status/Uptime` | 8 | Int64 (s) | NBIRTH, NDATA | |
 | `Status/MQTT Connects` | 9 | Int64 | NBIRTH, NDATA | Antal forbindelser siden boot. Mange betyder ustabil forbindelse |
+| `Properties/Security` | 10 | String | NBIRTH | Fra Del 8: eFuse-status, fx `sb=0 fe=0 jtag=1 dl=1 rng=sar` (se `08-sikkerhed.md`) |
 | `Temperature/Die` | 100 | Float (°C) | DBIRTH, DDATA | Kanal 0. Modbus-kanaler får alias 100 + kanal |
 
 ### 3.2 Regler, som koden følger (Sparkplug B 3.0)

@@ -10,13 +10,43 @@ Opdateres i slutningen af hver del. Detaljeret kravstatus: [02-kravmatrix.md](02
 | 4 | Cellulært netværk (SIM7080G, CMUX, PPP) | `del-04-netvaerk` | Færdig – **ikke testet på hardware endnu** (bruger gik videre til Del 5) |
 | 5 | Cloud-server (Webdock: SSH, Mosquitto, Let's Encrypt, Node-RED) | `del-05-cloud` | Færdig – **ikke kørt på VPS endnu** (bruger gik videre til Del 6) |
 | 6 | MQTT + TLS (Mbed TLS 4.1/PSA) | `del-06-mqtt-tls` | Færdig – testet på native_sim, **ikke på hardware endnu** |
-| 7 | Sparkplug B + tidssynkronisering | `del-07-sparkplug` | Færdig – testet på native_sim, afventer hardwaretest og godkendelse |
-| 8 | Sikkerhed: IEC 62443-4-2 / CRA | – | Ikke startet |
+| 7 | Sparkplug B + tidssynkronisering | `del-07-sparkplug` | Færdig – testet på native_sim, **ikke på hardware endnu** (bruger gik videre til Del 8) |
+| 8 | Sikkerhed: IEC 62443-4-2 / CRA, signeret firmware | `del-08-sikkerhed` | Færdig – testet på native_sim og med `imgtool`, afventer hardwaretest og godkendelse |
 | 9 | Lavt strøm- og dataforbrug, LP-kerne (`remote/`) | – | Ikke startet |
-| 10 | Nice to have (NCMD, dashboard, mTLS, MCUboot-signering/OTA) | – | Ikke startet |
+| 10 | Nice to have (dashboard, mTLS, OTA, fail2ban, watchdog) | – | Ikke startet |
 | 11 | Afslutning: test, memory layout, rapportmateriale | – | Ikke startet |
 
 Delene blev omnummereret i Del 3 (dataopsamling før netværk).
+
+## Del 8 – lavet
+
+- **Signeret firmware (N-05):** MCUboot med ECDSA P-256 (`app/sysbuild.conf`), `BOOT_VALIDATE_SLOT0=y` (signaturen
+  tjekkes ved hver boot) og downgrade-spærring (`app/sysbuild/mcuboot.conf`). Egen nøgle i `certs\` (gitignored) via
+  `scripts/new-signing-key.ps1`. `build.ps1` bruger den automatisk (ellers MCUboots dev-nøgle + advarsel) og kører
+  `imgtool verify`. `flash.ps1 -AppOnly` til den negative test
+- `security.c`: SAR ADC-entropi til RNG'en, sikkerhedsstatus fra eFuses (secure boot, flash encryption, JTAG, download
+  mode) i boot-log og NBIRTH (`Properties/Security`, alias 10)
+- `SECURITY:`-præfiks på sikkerhedshændelser (TLS/CONNACK-fejl, afviste kommandoer, urimelig tid, reboot)
+- NCMD Reboot afvises de første 60 s efter boot (reboot-loop), stack canaries
+- `overlay-release.conf` + `build.ps1 -Release` (ingen shell/TLS-debug), `build.ps1 -Sbom` (SPDX via `west spdx`)
+- `docs/08-sikkerhed.md`: zoner/conduits, STRIDE, SL-vurdering, IEC 62443-4-2- og CRA bilag I-mapping, eFuse-hærdning
+  (kun beskrevet, irreversibel). `SECURITY.md` (rapportering af sårbarheder)
+- VERSION 0.8.0-del08
+
+### Verificeret
+
+- Signeret build: `imgtool verify` OK. Samme image mod dev-nøglen → "No signature found". Én ændret byte → "invalid hash"
+- MCUboot-konfigurationen indeholder den offentlige nøgle, slot0-validering og downgrade-spærring
+- Builds uden warnings: standard (FLASH 10,3 %, RAM 39,6 %), `-Release`, `-TlsDebug`, `-ModbusRtu -Simulation`
+- native_sim mod Mosquitto 2.0.18: **75/75** (inkl. reboot-spærring, `SECURITY:`-hændelser, ingen password eller
+  privat nøgle i logs, `Properties/Security` i NBIRTH)
+- SBOM genereret med Mbed TLS 4.1.0, TF-PSA-Crypto 1.1.0 og nanopb 1.0.0 (CPE/purl)
+- eFuse-feltnavne kontrolleret mod espefuse 5.2 (virtuel ESP32-C6)
+
+### Mangler (hardware)
+
+- [ ] Del 8-tjeklisten i `08-sikkerhed.md` §9, især den negative signaturtest på boardet
+- [ ] Del 3–7 på hardware/VPS
 
 ## Del 7 – lavet
 

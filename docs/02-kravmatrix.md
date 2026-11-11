@@ -10,7 +10,7 @@ out of scope) samt arbejdsreglerne for projektet. Matrixen opdateres i slutninge
 7 Sparkplug B + tid · 8 Sikkerhed (IEC 62443-4-2 / CRA) · 9 Lavt strøm/data + LP-kerne ·
 10 Nice to have · 11 Afslutning
 
-*Sidst opdateret: Del 7.*
+*Sidst opdateret: Del 8.*
 
 ## Generelle krav
 
@@ -65,9 +65,9 @@ out of scope) samt arbejdsreglerne for projektet. Matrixen opdateres i slutninge
 | A-05 | SKAL bruge egen cloud-server til dataopsamling | Webdock VPS `zephyra.vps.webdock.cloud`: Mosquitto + Node-RED | `cloud/` | 5 | 🟡 | Server-opsætning og testpublisher lavet i Del 5. Afventer kørsel på VPS og data fra enheden |
 | A-06 | Dataopsamling med fast interval (5–15 s) | `APP_SAMPLE_INTERVAL_MS` (range 5000–15000, standard 10000). Periodisk `k_timer` → `k_sem` → sensor-tråd. Runtime-ændring valideres også (5–15 s) | `sensor.c`, `app_logic.c`, `app/Kconfig` | 2–3 | 🟡 | Kconfig afviser 20000 (Del 2). native_sim: præcis 5,000 s mellem målinger, også efter fejlcyklus. Mangler: hardwaretest |
 | A-07 | Data sendes i MQTT som Sparkplug B | Se G-17 | `sparkplug.c` | 7 | 🟡 | Se G-17 |
-| A-08 | IEC 62443-4-2 og/eller CRA Annex I (1.c fortrolighed, 1.d integritet) kan redegøres for | Mapping-dokument. Fx CR 4.1 / CRA 1.c (TLS-kryptering), CR 3.1 / CRA 1.d (TLS-integritet, MCUboot), CR 1.x (MQTT-autentifikation) | `docs/08-sikkerhed.md` | 8 | ⬜ | Review |
-| A-09 | Mindst 2 krav implementeret/identificeret | Kandidater: kommunikationsfortrolighed (TLS), integritet (TLS + signeret firmware), autentifikation (brugernavn/password → mTLS), ingen hemmeligheder i git | se A-08 | 8 | ⬜ | Test pr. krav |
-| A-10 | Relevant security level vurderes | SL-vurdering (SL 1/2) med begrundelse | `docs/08-sikkerhed.md` | 8 | ⬜ | Review |
+| A-08 | IEC 62443-4-2 og/eller CRA Annex I (1.c fortrolighed, 1.d integritet) kan redegøres for | Zoner/conduits, STRIDE, mapping af 27 CR/EDR til IEC 62443-4-2 og CRA bilag I del I (2)(a)–(m) + del II. Kursets "1.c/1.d" = vedtaget forordnings (2)(e) fortrolighed / (2)(f) integritet | `docs/08-sikkerhed.md`, `SECURITY.md` | 8 | 🟡 | Dokument skrevet (Del 8). Afventer review |
+| A-09 | Mindst 2 krav implementeret/identificeret | CR 3.1/4.1 TLS 1.3, CR 1.2/1.9 gensidig autentifikation, **CR 3.4 signeret firmware (MCUboot ECDSA P-256, slot0-validering, downgrade-spærring)**, CR 2.1 ACL, CR 3.5 inputvalidering, CR 7.1 reboot-spærring, CR 2.8 `SECURITY:`-logs, CR 4.3 SAR-entropi, CR 7.8 SBOM + sikkerhedsstatus | `security.c`, `sysbuild*`, `sparkplug.c`, `build.ps1` | 6–8 | 🟡 | native_sim 75/75 (negative TLS-tests, reboot-spærring, ingen hemmeligheder i logs). `imgtool verify`: forkert nøgle og ændret byte afvist. Mangler: hardwaretest `08-sikkerhed.md` §6.1 |
+| A-10 | Relevant security level vurderes | SL-T 2 for conduit enhed↔broker og cloud, SL-T 1 fysisk (dev-board). SL-C pr. zone med begrundelse og gaps (eFuse-hærdning, fail2ban) | `docs/08-sikkerhed.md` §3 | 8 | 🟡 | Afventer review |
 
 ## Nice to have
 
@@ -77,7 +77,7 @@ out of scope) samt arbejdsreglerne for projektet. Matrixen opdateres i slutninge
 | N-02 | OTA | MCUboot (allerede bootloader) + download over MQTT/HTTP | – | 10 | ⬜ | |
 | N-03 | Dashboard | Node-RED dashboard på VPS'en | `cloud/node-red/` | 5/10 | 🟡 | Node-RED Dashboard 2.0 med graf + seneste besked (Del 5). Udvides i Del 10 |
 | N-04 | mTLS | Klientcertifikat på enheden, `require_certificate` i Mosquitto | `mqtt_client.c`, `certs/` | 10 | ⬜ | |
-| N-05 | Bootloader-verifikation (MCUboot) | Signering slået til (`SB_CONFIG_BOOT_SIGNATURE_TYPE_*`), nøgle uden for git | `sysbuild` | 10 | ⬜ | Usigneret image afvises |
+| N-05 | Bootloader-verifikation (MCUboot) | `SB_CONFIG_BOOT_SIGNATURE_TYPE_ECDSA_P256`, egen nøgle i `certs\` (gitignored, `new-signing-key.ps1`), `BOOT_VALIDATE_SLOT0=y`, downgrade-spærring. ROM secure boot v2 kun beskrevet (irreversibel eFuse) | `app/sysbuild.conf`, `app/sysbuild/mcuboot.conf`, `build.ps1` | 8 | 🟡 | `imgtool verify` OK, forkert nøgle/ændret byte afvist. Hardware: app signeret med anden nøgle må ikke starte (`08-sikkerhed.md` §6.1) |
 | N-06 | Memory layout-diagram | Fra `build/*/zephyr.map` + partitionstabel (4 MB) | `docs/` | 11 | ⬜ | |
 
 ## Out of scope

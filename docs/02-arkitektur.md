@@ -43,6 +43,7 @@ Sparkplug B `DDATA`-besked over MQTT/TLS via LTE-M til egen broker på Webdock-s
 | `sparkplug.c/.h` | Sparkplug B-topics, protobuf encode/decode (nanopb), bdSeq/seq, aliases | `sparkplug` | nanopb, `k_msgq`, `k_poll` |
 | `mqtt_client.c/.h` | MQTT 3.1.1 over TLS, Last Will (NDEATH), subscribe NCMD/DCMD, publish | `mqtt` | `mqtt`, `tls_credentials`, sockets, `k_mem_slab` |
 | `network.c/.h` | Cellulær forbindelse: modem power, registrering, PPP, tilstandsmaskine | `network` | `modem_cellular`, `pm_device`, `net_mgmt`, `conn_mgr`, `k_event` |
+| `security.c/.h` | Del 8: sikkerhedsstatus fra eFuses (secure boot, flash encryption, JTAG, download mode), SAR ADC-entropi til RNG'en. Status logges og sendes i NBIRTH (`Properties/Security`) | ingen (bibliotek, init i `main`) | `esp_efuse`, `efuse_hal`, `soc_random` |
 | `power.c/.h` | Sleep-politik: lås/tillad light sleep, deep sleep + LP-core-wake | ingen (bibliotek) | `pm`, `pm_policy_state_lock` |
 | `app_types.h` | Fælles datatyper (`struct measurement`, `channel_value`, `measurement_batch`, `app_cmd`, `app_config`) | – | – |
 

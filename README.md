@@ -19,12 +19,14 @@ git -c core.longpaths=true clone https://github.com/asni75488/Zephyr_A.git C:\zp
 cd C:\zp\zephyr_a
 
 .\scripts\setup.ps1                  # værktøjer, venv, west, Zephyr 4.4.0, SDK, blobs
-.\scripts\build.ps1                  # sysbuild: MCUboot + app
+.\scripts\new-signing-key.ps1        # én gang: egen MCUboot-signeringsnøgle (certs\, ikke i git)
+.\scripts\build.ps1                  # sysbuild: MCUboot + signeret app (-Release, -Sbom: se docs/08)
 .\scripts\flash.ps1   -Port COM5     # "UART"-USB-porten på boardet
 .\scripts\monitor.ps1 -Port COM5     # log (afslut: Ctrl+T og derefter X)
 ```
 
-Detaljeret vejledning: [docs/01-opsaetning-windows.md](docs/01-opsaetning-windows.md)
+Detaljeret vejledning: [docs/01-opsaetning-windows.md](docs/01-opsaetning-windows.md).
+Sikkerhed: [docs/08-sikkerhed.md](docs/08-sikkerhed.md) og [SECURITY.md](SECURITY.md).
 
 ## Struktur
 
