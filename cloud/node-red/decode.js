@@ -47,7 +47,10 @@ if (type === 'NBIRTH' || type === 'DBIRTH') {
 }
 const map = aliases[key] || {};
 
-const ts = num(p.timestamp);
+// Without a device timestamp (e.g. the part 6 self-test, sent before time
+// sync exists) the receive time is used, so the chart still has an x value.
+const received = Date.now();
+const ts = (p.timestamp !== undefined && p.timestamp !== null) ? num(p.timestamp) : received;
 const metrics = (p.metrics || []).map((m) => {
     const alias = (m.alias !== undefined && m.alias !== null) ? num(m.alias) : undefined;
     return {
@@ -60,7 +63,7 @@ const metrics = (p.metrics || []).map((m) => {
 });
 
 const record = {
-    received: Date.now(),
+    received: received,
     group: group,
     type: type,
     edge: edge,

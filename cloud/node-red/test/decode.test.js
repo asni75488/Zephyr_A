@@ -61,7 +61,17 @@ out = run('spBv1.0/ProjektA/DDATA/esp32c6-other002/sensors', {
 assert.strictEqual(out[1][0].topic, 'alias:7');
 assert.strictEqual(out[1][0].timestamp, 1794300099000);
 
-// 5. Non-Sparkplug topic is ignored
+// 5. Part 6 self-test: NDATA by name, no timestamp at all -> receive time
+const before = Date.now();
+out = run('spBv1.0/ProjektA/NDATA/esp32c6-test0001', {
+    seq: L(0), metrics: [{ name: 'Test/Uptime', type: 'UInt64', value: L(42) },
+        { name: 'Test/RSSI', type: 'Float', value: -71 }]
+});
+assert.deepStrictEqual(out[1].map((m) => [m.topic, m.payload]), [['Test/Uptime', 42], ['Test/RSSI', -71]]);
+assert.ok(out[1][0].timestamp >= before && out[1][0].timestamp <= Date.now(), 'receive time used');
+assert.strictEqual(out[0].payload.timestamp, out[0].payload.received);
+
+// 6. Non-Sparkplug topic is ignored
 assert.strictEqual(run('foo/bar', {}), null);
 
 console.log('decode.js: all tests passed (' + statuses.length + ' status updates)');
