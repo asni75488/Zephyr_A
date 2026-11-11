@@ -13,6 +13,12 @@
                    (RS485 on UART0, console moves to the "USB" port)
       -ModemDebug  adds app\overlay-modem-debug.conf (shell with modem AT
                    commands + debug logs from CMUX/PPP/chat)
+      -TlsDebug    adds app\overlay-tls-debug.conf (Mbed TLS handshake log,
+                   TLS heap statistics, DEBUG log of the app)
+
+    Secrets: app\secrets.conf (MQTT password, ignored by git) is added
+    automatically when it exists. Without it the firmware builds, but the
+    MQTT client refuses to start.
 
     CMake caches -D options, so switching variant with an incremental build
     would silently keep the old variant. The script remembers the variant in
@@ -40,8 +46,11 @@
 .PARAMETER ModemDebug
     Shell with "modem send AT..." commands and verbose modem logs.
 
+.PARAMETER TlsDebug
+    Mbed TLS debug log and heap statistics (troubleshooting the broker connection).
+
 .PARAMETER ExtraConf
-    Extra Kconfig fragment(s), e.g. app\secrets.conf.
+    Extra Kconfig fragment(s). app\secrets.conf is added automatically.
 
 .EXAMPLE
     .\scripts\build.ps1
@@ -49,6 +58,7 @@
     .\scripts\build.ps1 -ModbusRtu
     .\scripts\build.ps1 -ModbusRtu -Simulation
     .\scripts\build.ps1 -ModemDebug
+    .\scripts\build.ps1 -TlsDebug
 #>
 [CmdletBinding()]
 param(
@@ -59,6 +69,7 @@ param(
     [switch]$Simulation,
     [switch]$ModbusRtu,
     [switch]$ModemDebug,
+    [switch]$TlsDebug,
     [string[]]$ExtraConf
 )
 
@@ -83,8 +94,20 @@ if ($Simulation) {
 if ($ModemDebug) {
     $confFiles += ConvertTo-CMakePath (Join-Path $AppDir 'overlay-modem-debug.conf')
 }
+if ($TlsDebug) {
+    $confFiles += ConvertTo-CMakePath (Join-Path $AppDir 'overlay-tls-debug.conf')
+}
 foreach ($f in $ExtraConf) {
     $confFiles += ConvertTo-CMakePath $f
+}
+# Secrets last, so they win over every other fragment.
+$secrets = Join-Path $AppDir 'secrets.conf'
+if (Test-Path $secrets) {
+    $secretsPath = ConvertTo-CMakePath $secrets
+    if ($confFiles -notcontains $secretsPath) { $confFiles += $secretsPath }
+    Write-Step 'Using app\secrets.conf'
+} else {
+    Write-Warn2 'app\secrets.conf not found - the MQTT client will not start (see app\secrets.conf.example)'
 }
 
 # Variant fingerprint -> pristine build when it changes (CMake cache is sticky).
@@ -122,5 +145,6 @@ $desc = @()
 if ($Simulation) { $desc += 'simulation' }
 if ($ModbusRtu) { $desc += 'Modbus RTU (console on USB port)' }
 if ($ModemDebug) { $desc += 'modem debug shell' }
+if ($TlsDebug) { $desc += 'TLS debug' }
 if ($desc.Count -eq 0) { $desc += 'standard' }
 Write-Ok "Build OK ($($desc -join ', ')). Output: $BuildDir\app\zephyr\zephyr.bin (+ $BuildDir\mcuboot)"
