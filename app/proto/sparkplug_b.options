@@ -1,0 +1,35 @@
+# Zephyr_A - nanopb options for the Eclipse Tahu sparkplug_b.proto
+#
+# Goal: small, static memory. The repeated "metrics" field is encoded and
+# decoded with callbacks (one Metric at a time on the stack) instead of a
+# fixed array of up to 48 metrics. Features the firmware does not use
+# (DataSet, Template, PropertySet, MetaData, bytes, extensions) are ignored:
+# nanopb skips them when decoding and never encodes them.
+
+org.eclipse.tahu.protobuf.Payload.metrics          type:FT_CALLBACK
+org.eclipse.tahu.protobuf.Payload.uuid             type:FT_IGNORE
+org.eclipse.tahu.protobuf.Payload.body             type:FT_IGNORE
+
+org.eclipse.tahu.protobuf.Payload.Metric.name            max_size:64
+org.eclipse.tahu.protobuf.Payload.Metric.string_value    max_size:48
+org.eclipse.tahu.protobuf.Payload.Metric.metadata        type:FT_IGNORE
+org.eclipse.tahu.protobuf.Payload.Metric.properties      type:FT_IGNORE
+org.eclipse.tahu.protobuf.Payload.Metric.bytes_value     type:FT_IGNORE
+org.eclipse.tahu.protobuf.Payload.Metric.dataset_value   type:FT_IGNORE
+org.eclipse.tahu.protobuf.Payload.Metric.template_value  type:FT_IGNORE
+org.eclipse.tahu.protobuf.Payload.Metric.extension_value type:FT_IGNORE
+
+# Messages that are only reachable through ignored fields: not generated.
+org.eclipse.tahu.protobuf.Payload.Template         skip_message:true
+org.eclipse.tahu.protobuf.Payload.DataSet          skip_message:true
+org.eclipse.tahu.protobuf.Payload.PropertyValue    skip_message:true
+org.eclipse.tahu.protobuf.Payload.PropertySet      skip_message:true
+org.eclipse.tahu.protobuf.Payload.PropertySetList  skip_message:true
+org.eclipse.tahu.protobuf.Payload.MetaData         skip_message:true
+org.eclipse.tahu.protobuf.Payload.Metric.MetricValueExtension skip_message:true
+org.eclipse.tahu.protobuf.Payload.Template.Parameter skip_message:true
+org.eclipse.tahu.protobuf.Payload.Template.Parameter.ParameterValueExtension skip_message:true
+org.eclipse.tahu.protobuf.Payload.DataSet.DataSetValue skip_message:true
+org.eclipse.tahu.protobuf.Payload.DataSet.DataSetValue.DataSetValueExtension skip_message:true
+org.eclipse.tahu.protobuf.Payload.DataSet.Row skip_message:true
+org.eclipse.tahu.protobuf.Payload.PropertyValue.PropertyValueExtension skip_message:true
