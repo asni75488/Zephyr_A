@@ -84,6 +84,15 @@ void sparkplug_on_disconnected(void);
 void sparkplug_notify_config_changed(void);
 
 /**
+ * @brief End the session on purpose (interval uplink, part 9): NDEATH after
+ * all queued messages, then a clean MQTT DISCONNECT (no Will).
+ */
+void sparkplug_end_session(void);
+
+/** @brief Number of batches waiting for the next session. */
+uint32_t sparkplug_batches_queued(void);
+
+/**
  * @brief Queue a batch of samples to be sent as one DDATA (from app_logic).
  * The batch is copied.
  * @retval 0 queued, -EAGAIN queue full.

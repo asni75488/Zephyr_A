@@ -146,11 +146,15 @@ config APP_SPARKPLUG_GROUP_ID
 
 config APP_SPARKPLUG_BATCH_QUEUE_LEN
 	int "Batches waiting for the MQTT session (app_logic -> sparkplug)"
+	default 24 if APP_UPLINK_INTERVAL
 	default 4
 	help
 	  While MQTT is down, batches are kept here (not encoded) and sent
 	  after the next BIRTH. 4 x 6 x 10 s = 4 minutes of data. Each slot is
-	  one struct measurement_batch (~680 B).
+	  one struct measurement_batch (~680 B). In interval mode (part 9) the
+	  queue holds the data between two uplinks: 24 slots x 12 x 10 s = 48
+	  minutes with overlay-lowpower.conf; an uplink starts early when the
+	  queue is 3/4 full, so no data is lost.
 
 config APP_SPARKPLUG_STATUS_INTERVAL_S
 	int "NDATA with Status/RSSI, Status/Uptime, Status/MQTT Connects every N s (0 = never)"
@@ -241,6 +245,128 @@ config APP_SECURITY_SAR_ENTROPY
 	  Number Generation"). Zephyr enables it only while loading the image.
 	  The application uses no ADC, so it stays enabled. Cost: the SAR ADC
 	  runs continuously (measured in part 9).
+
+endmenu
+
+menu "Low power (part 9)"
+
+choice APP_UPLINK_MODE
+	prompt "When the cellular link is used"
+	default APP_UPLINK_CONTINUOUS
+	help
+	  The modem is by far the largest consumer (docs/09-strom-data.md).
+	  Measurements are taken every APP_SAMPLE_INTERVAL_MS in both modes.
+
+config APP_UPLINK_CONTINUOUS
+	bool "Continuous: modem and MQTT session always on"
+	help
+	  Data arrives in Node-RED every minute and NCMD commands take effect
+	  at once. The modem stays registered, and the HP core cannot use
+	  light sleep while the modem UART is active (no flow control, a byte
+	  arriving during light sleep would be lost).
+
+config APP_UPLINK_INTERVAL
+	bool "Interval: modem on only for an uplink every APP_UPLINK_INTERVAL_S"
+	help
+	  Batches are kept in RAM. Every APP_UPLINK_INTERVAL_S (or when the
+	  batch queue is 3/4 full) the modem is started, the MQTT/TLS session
+	  is opened, NBIRTH/DBIRTH and all queued DDATA (with their original
+	  timestamps, is_historical) are sent, the node says NDEATH and
+	  disconnects cleanly, and the modem radio is switched off
+	  (AT+CFUN=0). Between uplinks the HP core is in light sleep except for
+	  the short measurements. NCMD is only received during an uplink.
+
+endchoice
+
+config APP_UPLINK_INTERVAL_S
+	int "Interval between uplinks [s]"
+	depends on APP_UPLINK_INTERVAL
+	range 60 3600
+	default 1800
+	help
+	  Trade-off: every uplink costs one full TLS handshake (~5 kB) plus
+	  modem attach time, so very short intervals cost more data than
+	  continuous mode; long intervals delay data and commands.
+
+config APP_UPLINK_LINGER_S
+	int "Stay connected this long after the queue is empty [s]"
+	depends on APP_UPLINK_INTERVAL
+	default 10
+	help
+	  Gives the host application time to send NCMD after it has seen the
+	  NBIRTH (e.g. queued configuration changes).
+
+config APP_UPLINK_TIMEOUT_S
+	int "Give up an uplink after this time without success [s]"
+	depends on APP_UPLINK_INTERVAL
+	default 240
+	help
+	  Covers modem start, registration, PPP, SNTP, TLS and BIRTH. On a
+	  timeout the modem is switched off again and the data stays queued
+	  until the next uplink.
+
+config APP_UPLINK_THREAD_PRIO
+	int "Uplink thread priority"
+	depends on APP_UPLINK_INTERVAL
+	default 9
+
+config APP_UPLINK_THREAD_STACK
+	int "Uplink thread stack size"
+	depends on APP_UPLINK_INTERVAL
+	default 1536
+
+config APP_POWER_LIGHT_SLEEP
+	bool "Allow light sleep of the HP core when no UART transfer can happen"
+	default y
+	depends on PM
+	help
+	  Light sleep is allowed only while the modem is stopped and no
+	  measurement is in progress (power.c sleep locks). In continuous mode
+	  the modem always runs, so light sleep is in practice used only in
+	  interval mode.
+
+config APP_MODEM_RADIO_OFF
+	bool "Switch the modem radio off (AT+CFUN=0) when the link is stopped"
+	default y
+	help
+	  The SIM7080G on the M5Stack unit has no PWRKEY pin, so it cannot be
+	  powered down and up again by the ESP32-C6. Minimum functionality
+	  mode switches off RF and SIM. The driver sets AT+CFUN=1 again when
+	  the modem is resumed.
+
+config APP_MODEM_EDRX
+	string "eDRX value for AT+CEDRXS (4-bit string, empty = eDRX off)"
+	default ""
+	help
+	  Requested extended DRX cycle for LTE-M (3GPP TS 27.007, e.g. "0101"
+	  = 81.92 s). Only useful in continuous mode; the network decides
+	  whether it is granted. Commands from the server are then delayed by
+	  up to one cycle. Empty: AT+CEDRXS=0.
+
+config APP_LPCORE
+	bool "Use the LP core (app/remote): deep-sleep wake-up and supervisor"
+	default y
+	depends on ESP32_ULP_COPROC_ENABLED
+	help
+	  The LP-core image (app/remote) is loaded by Zephyr at boot. power.c
+	  sets up the memory shared with it (app/common/lp_shared.h).
+
+config APP_LPCORE_WATCHDOG_S
+	int "LP-core supervisor: reset the HP core after N s without a processed measurement (0 = off)"
+	depends on APP_LPCORE
+	range 0 3600
+	default 120
+	help
+	  app_logic gives a heartbeat for every processed measurement (every
+	  5-15 s). Must be clearly longer than the sample interval.
+
+config APP_SLEEP_MIN_S
+	int "Shortest deep sleep accepted from NCMD Node Control/Sleep [s]"
+	default 60
+
+config APP_SLEEP_MAX_S
+	int "Longest deep sleep accepted from NCMD Node Control/Sleep [s]"
+	default 86400
 
 endmenu
 

@@ -8,7 +8,10 @@
  *   then            DDATA per batch, NDATA with status every
  *                   APP_SPARKPLUG_STATUS_INTERVAL_S and after config changes
  *   NCMD            Node Control/Rebirth, Node Control/Reboot,
+ *                   Node Control/Sleep (part 9),
  *                   Config/Sample Interval, Config/Batch Size
+ *   planned end     sparkplug_end_session() (interval uplink, part 9):
+ *                   NDEATH, then a clean MQTT DISCONNECT
  *   connection lost sparkplug_on_disconnected(): batches wait in batch_q
  *                   until the next BIRTH (a DATA message must never come
  *                   before the BIRTH of its session)
@@ -44,11 +47,13 @@
 #include "device_info.h"
 #include "mqtt_client.h"
 #include "network.h"
+#include "power.h"
 #include "proto/sparkplug_b.pb.h"
 #include "security.h"
 #include "sensor.h"
 #include "sparkplug.h"
 #include "timesync.h"
+#include "uplink.h"
 #if defined(CONFIG_APP_MODBUS_RTU)
 #include "modbus.h"
 #endif
@@ -94,6 +99,7 @@ enum node_metric {
 	NM_UPTIME,
 	NM_MQTT_CONNECTS,
 	NM_SECURITY,
+	NM_SLEEP,
 	NM_COUNT
 };
 
@@ -113,6 +119,7 @@ static const struct {
 	[NM_UPTIME] = {"Status/Uptime", DT_INT64, 8},
 	[NM_MQTT_CONNECTS] = {"Status/MQTT Connects", DT_INT64, 9},
 	[NM_SECURITY] = {"Properties/Security", DT_STRING, 10},
+	[NM_SLEEP] = {"Node Control/Sleep", DT_INT64, 11},
 };
 
 static const char *const msg_type_names[SPB_MSG_TYPE_COUNT] = {
@@ -137,6 +144,7 @@ static atomic_t online;          /* 1 between on_connected and on_disconnected *
 static atomic_t next_bdseq;      /* bdSeq for the next CONNECT */
 static atomic_t current_bdseq;   /* bdSeq of the Will of the current session */
 static atomic_t config_dirty;    /* app_logic changed the configuration */
+static atomic_t end_requested;   /* uplink: end the session (part 9) */
 
 static void sparkplug_thread(void *p1, void *p2, void *p3);
 K_THREAD_DEFINE(sparkplug_tid, CONFIG_APP_SPARKPLUG_THREAD_STACK, sparkplug_thread, NULL, NULL,
@@ -148,6 +156,7 @@ static uint8_t seq;              /* 0..255, NBIRTH = 0 */
 static struct measurement last_meas;
 static bool have_last_meas;
 static int64_t next_status_ms;
+static int64_t birth_utc_ms;     /* NBIRTH time: older DDATA is historical */
 static struct rx_msg rx_buf;
 static struct measurement_batch batch_buf;
 static bool started;
@@ -203,6 +212,10 @@ static void set_long(spb_metric_t *m, int64_t v)
 
 static const char *reset_cause_text(uint32_t cause)
 {
+	if (app_power_reset_by_lp()) {
+		return "lp-core supervisor"; /* reported as "software" by hwinfo */
+	}
+
 	/* hwinfo bits, most relevant first (same order as device_info.c) */
 	static const struct {
 		uint32_t bit;
@@ -247,6 +260,9 @@ static bool get_node_metric(const struct metric_src *src, size_t idx, spb_metric
 	case NM_REBOOT:
 		m->which_value = TAG_BOOL;
 		m->value.boolean_value = false;
+		break;
+	case NM_SLEEP:
+		set_long(m, 0); /* write-only command: seconds of deep sleep */
 		break;
 	case NM_FW_VERSION:
 		m->which_value = TAG_STRING;
@@ -382,6 +398,14 @@ static bool get_data_metric(const struct metric_src *src, size_t idx, spb_metric
 		m->has_timestamp = true;
 		m->timestamp = (uint64_t)utc;
 	}
+	/* Measured before this session's BIRTH (interval uplink, link outage):
+	 * Sparkplug B 3.0 "is_historical" - a host stores the value with its
+	 * timestamp but does not treat it as the current value.
+	 */
+	if ((utc > 0) && (utc < birth_utc_ms)) {
+		m->has_is_historical = true;
+		m->is_historical = true;
+	}
 	set_value(m, cv);
 	return true;
 }
@@ -477,6 +501,7 @@ static int publish_births(void)
 
 	dev.count = device_channels(channels, ARRAY_SIZE(channels));
 	seq = 0U;
+	birth_utc_ms = now;
 
 	ret = publish(SPB_NBIRTH, &node, MQTT_QOS_0_AT_MOST_ONCE);
 	if (ret == 0) {
@@ -554,6 +579,8 @@ struct cmd_result {
 	int64_t interval_ms;
 	bool has_batch;
 	int64_t batch_size;
+	bool has_sleep;
+	int64_t sleep_s;
 	uint8_t unknown;
 };
 
@@ -632,6 +659,10 @@ static bool decode_metrics_cb(pb_istream_t *stream, const pb_field_t *field, voi
 		res->has_batch = true;
 		res->batch_size = v;
 		break;
+	case NM_SLEEP:
+		res->has_sleep = true;
+		res->sleep_s = v;
+		break;
 	default:
 		res->unknown++;
 		LOG_WRN("SECURITY: NCMD tried to write read-only metric %s",
@@ -641,37 +672,78 @@ static bool decode_metrics_cb(pb_istream_t *stream, const pb_field_t *field, voi
 	return true;
 }
 
-static void send_ndeath_and_reboot(void)
+/*
+ * Announce a planned death ourselves (reboot, deep sleep, end of an
+ * interval uplink): a reboot drops the TCP connection silently, and the
+ * broker would only send the Will after 1.5 x keep-alive (30 min); a clean
+ * DISCONNECT suppresses the Will. Same bdSeq as the Will of this session.
+ */
+static void publish_ndeath(void)
 {
 	struct app_mqtt_msg msg = {.qos = MQTT_QOS_1_AT_LEAST_ONCE, .retain = false};
 	int ret;
 
-	/* Announce the planned death ourselves: a reboot drops the TCP
-	 * connection silently, and the broker would only send the Will after
-	 * 1.5 x keep-alive (30 min). Same bdSeq as the Will of this session.
-	 */
 	msg.payload = app_mqtt_alloc(K_MSEC(500));
-	if (msg.payload != NULL) {
-		struct metric_src src = {
-			.get = get_ndeath_metric,
-			.ctx = (const void *)(uintptr_t)atomic_get(&current_bdseq),
-			.count = 1};
-		size_t n = 0;
-
-		ret = encode_payload(msg.payload, APP_MQTT_PAYLOAD_MAX, &src, false, 0,
-				     timesync_now_ms(), &n);
-		if ((ret == 0) && (sparkplug_topic(SPB_NDEATH, msg.topic, sizeof(msg.topic)) > 0)) {
-			msg.len = (uint16_t)n;
-			if (app_mqtt_submit(&msg, K_MSEC(500)) != 0) {
-				app_mqtt_free(msg.payload);
-			}
-		} else {
-			app_mqtt_free(msg.payload);
-		}
+	if (msg.payload == NULL) {
+		LOG_WRN("NDEATH: no payload buffer free");
+		return;
 	}
 
+	struct metric_src src = {
+		.get = get_ndeath_metric,
+		.ctx = (const void *)(uintptr_t)atomic_get(&current_bdseq),
+		.count = 1};
+	size_t n = 0;
+
+	ret = encode_payload(msg.payload, APP_MQTT_PAYLOAD_MAX, &src, false, 0,
+			     timesync_now_ms(), &n);
+	if ((ret == 0) && (sparkplug_topic(SPB_NDEATH, msg.topic, sizeof(msg.topic)) > 0)) {
+		msg.len = (uint16_t)n;
+		if (app_mqtt_submit(&msg, K_MSEC(500)) == 0) {
+			LOG_INF("NDEATH bdSeq %d (planned)", (int)atomic_get(&current_bdseq));
+			return;
+		}
+	}
+	app_mqtt_free(msg.payload);
+	LOG_WRN("NDEATH not sent");
+}
+
+static void send_ndeath_and_reboot(void)
+{
+	publish_ndeath();
 	LOG_WRN("Rebooting in 2 s (NCMD Node Control/Reboot)");
 	k_sleep(K_SECONDS(2));
+	sys_reboot(SYS_REBOOT_COLD);
+}
+
+static bool wait_mqtt_closed(int timeout_ms)
+{
+	for (int t = 0; app_mqtt_is_connected() && (t < timeout_ms); t += 100) {
+		k_msleep(100);
+	}
+	return !app_mqtt_is_connected();
+}
+
+/* NCMD Node Control/Sleep (part 9): NDEATH, clean disconnect, modem off,
+ * deep sleep. The LP core wakes the HP core, which then boots normally
+ * (Reset Cause "low-power wake"). Measurements stop during the sleep.
+ */
+static void send_ndeath_and_sleep(uint32_t seconds)
+{
+	publish_ndeath();
+	app_mqtt_disconnect();
+	(void)wait_mqtt_closed(10000);
+
+	(void)network_request_down();
+	for (int t = 0; (network_get_state() != NETWORK_STATE_OFF) && (t < 45000); t += 250) {
+		k_msleep(250);
+	}
+
+	int ret = app_power_deep_sleep(seconds);
+
+	/* Only reached if deep sleep is not possible after all */
+	LOG_ERR("Deep sleep failed (%d) - rebooting", ret);
+	k_sleep(K_SECONDS(1));
 	sys_reboot(SYS_REBOOT_COLD);
 }
 
@@ -708,6 +780,19 @@ static void handle_rx(const struct rx_msg *rx)
 		LOG_INF("NCMD: Config/Batch Size = %lld", res.batch_size);
 		(void)app_logic_submit_command(&cmd, K_MSEC(100));
 	}
+	if (res.has_sleep) {
+		if (!app_power_deep_sleep_supported()) {
+			LOG_WRN("SECURITY: NCMD Sleep rejected - deep sleep with LP-core wake-up "
+				"not available");
+		} else if ((res.sleep_s < CONFIG_APP_SLEEP_MIN_S) ||
+			   (res.sleep_s > CONFIG_APP_SLEEP_MAX_S)) {
+			LOG_ERR("SECURITY: rejected sleep %lld s (allowed %d-%d)", res.sleep_s,
+				CONFIG_APP_SLEEP_MIN_S, CONFIG_APP_SLEEP_MAX_S);
+		} else {
+			LOG_WRN("NCMD: Node Control/Sleep %lld s", res.sleep_s);
+			send_ndeath_and_sleep((uint32_t)res.sleep_s);
+		}
+	}
 	if (res.rebirth) {
 		LOG_INF("NCMD: Node Control/Rebirth");
 		born_gen = 0; /* the thread loop publishes NBIRTH + DBIRTH again */
@@ -740,6 +825,16 @@ static void sparkplug_thread(void *p1, void *p2, void *p3)
 		atomic_val_t gen = atomic_get(&session_gen);
 		bool is_online = atomic_get(&online) != 0;
 		int64_t now = k_uptime_get();
+
+		if (atomic_cas(&end_requested, 1, 0) && is_online) {
+			/* Planned end (interval uplink): NDEATH is queued behind
+			 * all DATA messages, then the mqtt thread disconnects.
+			 */
+			publish_ndeath();
+			app_mqtt_disconnect();
+			k_sleep(K_MSEC(100));
+			continue;
+		}
 
 		if (is_online && (born_gen != gen)) {
 			if (publish_births() == 0) {
@@ -795,6 +890,7 @@ static void sparkplug_thread(void *p1, void *p2, void *p3)
 			while (k_msgq_get(&batch_q, &batch_buf, K_NO_WAIT) == 0) {
 				publish_batch(&batch_buf);
 			}
+			uplink_notify_flushed(); /* BIRTH + all queued data sent */
 		}
 	}
 }
@@ -885,6 +981,17 @@ void sparkplug_notify_config_changed(void)
 {
 	(void)atomic_set(&config_dirty, 1);
 	k_poll_signal_raise(&wake_sig, 2);
+}
+
+void sparkplug_end_session(void)
+{
+	(void)atomic_set(&end_requested, 1);
+	k_poll_signal_raise(&wake_sig, 3);
+}
+
+uint32_t sparkplug_batches_queued(void)
+{
+	return k_msgq_num_used_get(&batch_q);
 }
 
 int sparkplug_submit_batch(const struct measurement_batch *batch, k_timeout_t timeout)

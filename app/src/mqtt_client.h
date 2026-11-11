@@ -104,6 +104,13 @@ void app_mqtt_free(uint8_t *buf);
 int app_mqtt_submit(const struct app_mqtt_msg *msg, k_timeout_t timeout);
 
 /**
+ * @brief Close the session cleanly after the queued messages (DISCONNECT,
+ * no Will). The client then waits until the network has been down before it
+ * connects again (interval uplink, part 9).
+ */
+void app_mqtt_disconnect(void);
+
+/**
  * @brief Set the Last Will used on the next CONNECT (QoS 1, no retain).
  *
  * The payload is copied. Normally not needed: before every CONNECT the mqtt

@@ -13,8 +13,10 @@
 #include <zephyr/logging/log.h>
 
 #include "app_logic.h"
+#include "power.h"
 #include "sensor.h"
 #include "sparkplug.h"
+#include "uplink.h"
 
 LOG_MODULE_REGISTER(app_logic, CONFIG_APP_LOG_LEVEL);
 
@@ -88,6 +90,7 @@ static void log_measurement(const struct measurement *m)
 static void handle_measurement(const struct measurement *m, uint8_t batch_size)
 {
 	log_measurement(m);
+	app_power_heartbeat(); /* LP-core supervisor: sampling pipeline alive */
 
 	if (batch.count < CONFIG_APP_BATCH_MAX) {
 		batch.items[batch.count++] = *m;
@@ -108,6 +111,7 @@ static void handle_measurement(const struct measurement *m, uint8_t batch_size)
 		LOG_WRN("Batch #%u dropped - sparkplug queue full (MQTT down?)", batches_done);
 	}
 	batch.count = 0;
+	uplink_notify_batch(); /* interval mode: may start an early uplink */
 }
 
 static void handle_command(const struct app_cmd *cmd)

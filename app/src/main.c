@@ -28,6 +28,7 @@
 #include "sparkplug.h"
 #include "security.h"
 #include "timesync.h"
+#include "uplink.h"
 
 LOG_MODULE_REGISTER(app_main, CONFIG_APP_LOG_LEVEL);
 
@@ -48,6 +49,7 @@ static const struct module modules[] = {
 	{"sparkplug", sparkplug_init, sparkplug_start},
 	{"mqtt", app_mqtt_init, app_mqtt_start},
 	{"network", network_init, network_start},
+	{"uplink", uplink_init, uplink_start}, /* interval mode only (part 9) */
 	{"sensor", app_sensor_init, app_sensor_start},
 };
 

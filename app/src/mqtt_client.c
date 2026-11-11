@@ -9,6 +9,9 @@
  *   CONNECTED --L4 link lost--> IDLE (no backoff, the network thread
  *                                     re-establishes the link)
  *   RESOLVING/CONNECTING --error--> BACKOFF --delay--> IDLE
+ *   CONNECTED --app_mqtt_disconnect()--> DISCONNECT sent --> IDLE, waits
+ *                                     until the network has been down
+ *                                     (interval uplink, part 9)
  *
  * Backoff doubles from APP_MQTT_BACKOFF_MIN_S to APP_MQTT_BACKOFF_MAX_S
  * (+ up to 25 % random jitter, so many devices do not reconnect in step).
@@ -68,6 +71,7 @@ LOG_MODULE_REGISTER(app_mqtt, CONFIG_APP_LOG_LEVEL);
 
 /* Internal error codes (positive range of errno is not used by Zephyr). */
 #define ERR_LINK_LOST    (-ENETDOWN)
+#define ERR_PLANNED      (-ESHUTDOWN)
 
 K_MSGQ_DEFINE(mqtt_tx_q, sizeof(struct app_mqtt_msg), CONFIG_APP_MQTT_TX_QUEUE_LEN, 4);
 /* One block more than the queue: one payload is being encoded meanwhile. */
@@ -88,6 +92,7 @@ static const char *const state_names[] = {
 /* --- Shared with other threads (atomic / spinlock / mutex) ---------------- */
 static atomic_t state = ATOMIC_INIT(APP_MQTT_STATE_IDLE);
 static atomic_t link_lost;
+static atomic_t disconnect_requested;
 static int wake_fd = -1;
 
 static struct k_spinlock stats_lock;
@@ -682,6 +687,18 @@ static int session_run(void)
 			return ret;
 		}
 
+		if (atomic_cas(&disconnect_requested, 1, 0)) {
+			/* All queued messages (incl. NDEATH) are written. A clean
+			 * DISCONNECT tells the broker not to publish the Will.
+			 */
+			ret = mqtt_disconnect(&client, NULL);
+			if (ret != 0) {
+				(void)mqtt_abort(&client);
+			}
+			LOG_INF("MQTT DISCONNECT (planned)%s", (ret != 0) ? " failed" : "");
+			return ERR_PLANNED;
+		}
+
 		ret = zsock_poll(fds, ARRAY_SIZE(fds), poll_timeout_ms());
 		if (ret < 0) {
 			ret = -errno;
@@ -760,6 +777,7 @@ static void mqtt_thread(void *p1, void *p2, void *p3)
 		set_state(APP_MQTT_STATE_IDLE);
 		(void)network_wait_up(K_FOREVER);
 		atomic_set(&link_lost, 0);
+		atomic_set(&disconnect_requested, 0);
 
 		set_state(APP_MQTT_STATE_RESOLVING);
 		ret = resolve_broker();
@@ -782,6 +800,14 @@ static void mqtt_thread(void *p1, void *p2, void *p3)
 
 		if (ret == ERR_LINK_LOST) {
 			/* Not the broker's fault: wait for the network thread. */
+			continue;
+		}
+		if (ret == ERR_PLANNED) {
+			/* Interval uplink: do not reconnect on the link that is
+			 * being shut down; wait until it has been down once.
+			 */
+			set_state(APP_MQTT_STATE_IDLE);
+			(void)k_event_wait(network_events(), NETWORK_EVT_DOWN, false, K_FOREVER);
 			continue;
 		}
 
@@ -902,6 +928,12 @@ int app_mqtt_submit(const struct app_mqtt_msg *msg, k_timeout_t timeout)
 	}
 	wake_thread();
 	return 0;
+}
+
+void app_mqtt_disconnect(void)
+{
+	atomic_set(&disconnect_requested, 1);
+	wake_thread();
 }
 
 int app_mqtt_set_will(const char *topic, const uint8_t *payload, size_t len)

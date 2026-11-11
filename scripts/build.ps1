@@ -17,6 +17,8 @@
                    TLS heap statistics, DEBUG log of the app)
       -Release     adds app\overlay-release.conf (no shell/debug, fewer logs);
                    not together with -ModemDebug/-TlsDebug
+      -LowPower    adds app\overlay-lowpower.conf (interval uplink every
+                   30 min, modem radio off and light sleep in between)
 
     Firmware signing (part 8): if certs\mcuboot-signing-key.pem exists
     (scripts\new-signing-key.ps1), MCUboot is built with its public key and
@@ -63,6 +65,9 @@
 .PARAMETER Release
     Release variant: no shell or debug output (app\overlay-release.conf).
 
+.PARAMETER LowPower
+    Low-power variant: interval uplink (app\overlay-lowpower.conf, docs\09-strom-data.md).
+
 .PARAMETER Sbom
     Generate an SPDX SBOM in build\spdx after the build.
 
@@ -77,6 +82,8 @@
     .\scripts\build.ps1 -ModemDebug
     .\scripts\build.ps1 -TlsDebug
     .\scripts\build.ps1 -Release -Sbom
+    .\scripts\build.ps1 -LowPower
+    .\scripts\build.ps1 -LowPower -Release
 #>
 [CmdletBinding()]
 param(
@@ -89,6 +96,7 @@ param(
     [switch]$ModemDebug,
     [switch]$TlsDebug,
     [switch]$Release,
+    [switch]$LowPower,
     [switch]$Sbom,
     [string[]]$ExtraConf
 )
@@ -122,6 +130,9 @@ if ($Release) {
         throw '-Release cannot be combined with -TlsDebug or -ModemDebug'
     }
     $confFiles += ConvertTo-CMakePath (Join-Path $AppDir 'overlay-release.conf')
+}
+if ($LowPower) {
+    $confFiles += ConvertTo-CMakePath (Join-Path $AppDir 'overlay-lowpower.conf')
 }
 foreach ($f in $ExtraConf) {
     $confFiles += ConvertTo-CMakePath $f
@@ -219,5 +230,6 @@ if ($ModbusRtu) { $desc += 'Modbus RTU (console on USB port)' }
 if ($ModemDebug) { $desc += 'modem debug shell' }
 if ($TlsDebug) { $desc += 'TLS debug' }
 if ($Release) { $desc += 'release' }
+if ($LowPower) { $desc += 'low power (interval uplink)' }
 if ($desc.Count -eq 0) { $desc += 'standard' }
 Write-Ok "Build OK ($($desc -join ', ')). Output: $BuildDir\app\zephyr\zephyr.bin (+ $BuildDir\mcuboot)"
