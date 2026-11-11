@@ -61,15 +61,41 @@ out = run('spBv1.0/ProjektA/DDATA/esp32c6-other002/sensors', {
 assert.strictEqual(out[1][0].topic, 'alias:7');
 assert.strictEqual(out[1][0].timestamp, 1794300099000);
 
-// 5. Part 6 self-test: NDATA by name, no timestamp at all -> receive time
+// 5. NDATA from the edge node: only Status/RSSI is charted, Config/Uptime are
+//    logged; a message without any timestamp gets the receive time
 const before = Date.now();
 out = run('spBv1.0/ProjektA/NDATA/esp32c6-test0001', {
-    seq: L(0), metrics: [{ name: 'Test/Uptime', type: 'UInt64', value: L(42) },
-        { name: 'Test/RSSI', type: 'Float', value: -71 }]
+    seq: L(3), metrics: [{ alias: L(7), type: 'Int32', value: -71 }, { alias: L(8), type: 'Int64', value: L(600) },
+        { name: 'Config/Sample Interval', type: 'Int64', value: L(5000) }]
 });
-assert.deepStrictEqual(out[1].map((m) => [m.topic, m.payload]), [['Test/Uptime', 42], ['Test/RSSI', -71]]);
-assert.ok(out[1][0].timestamp >= before && out[1][0].timestamp <= Date.now(), 'receive time used');
+assert.deepStrictEqual(out[1], [], 'alias unknown before NBIRTH: not charted');
+assert.strictEqual(out[0].payload.metrics.length, 3, 'all metrics logged');
+assert.ok(out[0].payload.timestamp >= before && out[0].payload.timestamp <= Date.now(), 'receive time used');
 assert.strictEqual(out[0].payload.timestamp, out[0].payload.received);
+
+// 5b. Same after an NBIRTH with names/aliases: RSSI resolves and is charted
+run('spBv1.0/ProjektA/NBIRTH/esp32c6-test0001', {
+    timestamp: L(1794300000000), seq: L(0),
+    metrics: [{ name: 'bdSeq', type: 'Int64', value: L(1) }, { name: 'Status/RSSI', alias: L(7), type: 'Int32', value: -70 }]
+});
+assert.strictEqual(store.edgeNodes['esp32c6-test0001'].online, true, 'edge node registered for NCMD');
+out = run('spBv1.0/ProjektA/NDATA/esp32c6-test0001', {
+    timestamp: L(1794300600000), seq: L(1), metrics: [{ alias: L(7), type: 'Int32', value: -71 }, { alias: L(8), type: 'Int64', value: L(600) }]
+});
+assert.deepStrictEqual(out[1].map((m) => [m.topic, m.payload]), [['Status/RSSI', -71]]);
+
+// 5c. DDATA with a bad-quality value (is_null -> null) is logged but not charted
+out = run('spBv1.0/ProjektA/DDATA/esp32c6-test0001/sensors', {
+    timestamp: L(1794300660000), seq: L(2),
+    metrics: [{ alias: L(1), type: 'Float', value: null }, { alias: L(1), type: 'Float', value: 23.5 }]
+});
+assert.deepStrictEqual(out[1].map((m) => m.payload), [23.5]);
+assert.strictEqual(out[0].payload.metrics[0].value, null);
+
+// 5d. NDEATH marks the edge node offline
+run('spBv1.0/ProjektA/NDEATH/esp32c6-test0001', { metrics: [{ name: 'bdSeq', type: 'Int64', value: L(1) }] });
+assert.strictEqual(store.edgeNodes['esp32c6-test0001'].online, false);
+assert.strictEqual(statuses[statuses.length - 1].fill, 'red');
 
 // 6. Non-Sparkplug topic is ignored
 assert.strictEqual(run('foo/bar', {}), null);

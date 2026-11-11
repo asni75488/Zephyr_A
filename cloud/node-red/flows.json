@@ -73,7 +73,7 @@
     "type": "function",
     "z": "a1f0c0de00000001",
     "name": "Sparkplug B decode",
-    "func": "// Zephyr_A - Sparkplug B decoder (body of the Node-RED function node\n// \"Sparkplug B decode\" in flows.json; kept here as a file so it can be\n// reviewed and unit-tested: cloud/node-red/test/decode.test.js).\n//\n// In:  msg.topic   spBv1.0/<group>/<type>/<edge_node>[/<device>]\n//      msg.payload Buffer (Sparkplug B protobuf)\n// Out: [1] full record as JSON (data log file + debug)\n//      [2] one message per numeric data metric (chart): topic=name,\n//          payload=value, timestamp=metric timestamp (ms, UTC)\n//      [3] status text for the dashboard\n// \"sparkplug\" is the npm module sparkplug-payload (Setup -> Modules).\n\nconst parts = (msg.topic || '').split('/');\nif (parts.length < 4 || parts[0] !== 'spBv1.0') {\n    return null;\n}\nconst [, group, type, edge, device] = parts;\n\nlet p;\ntry {\n    p = sparkplug.get('spBv1.0').decodePayload(msg.payload);\n} catch (err) {\n    node.error('Sparkplug decode failed on ' + msg.topic + ': ' + err.message, msg);\n    node.status({ fill: 'red', shape: 'ring', text: 'decode error ' + type });\n    return null;\n}\n\n// 64-bit fields (timestamps, seq, bdSeq) are decoded as Long objects.\nconst num = (v) => {\n    if (v === null || v === undefined) return v;\n    if (typeof v === 'object' && typeof v.toNumber === 'function') return v.toNumber();\n    if (typeof v === 'bigint') return Number(v);\n    return v;\n};\n\n// Metric aliases: names are only sent in NBIRTH/DBIRTH; DATA uses aliases.\nconst key = group + '/' + edge + '/' + (device || '');\nconst aliases = flow.get('aliases') || {};\nif (type === 'NBIRTH' || type === 'DBIRTH') {\n    aliases[key] = {};\n    for (const m of (p.metrics || [])) {\n        if (m.alias !== undefined && m.alias !== null && m.name) {\n            aliases[key][String(num(m.alias))] = m.name;\n        }\n    }\n    flow.set('aliases', aliases);\n}\nconst map = aliases[key] || {};\n\n// Without a device timestamp (e.g. the part 6 self-test, sent before time\n// sync exists) the receive time is used, so the chart still has an x value.\nconst received = Date.now();\nconst ts = (p.timestamp !== undefined && p.timestamp !== null) ? num(p.timestamp) : received;\nconst metrics = (p.metrics || []).map((m) => {\n    const alias = (m.alias !== undefined && m.alias !== null) ? num(m.alias) : undefined;\n    return {\n        name: m.name || map[String(alias)] || ('alias:' + alias),\n        alias: alias,\n        type: m.type,\n        value: num(m.value),\n        timestamp: (m.timestamp !== undefined && m.timestamp !== null) ? num(m.timestamp) : ts\n    };\n});\n\nconst record = {\n    received: received,\n    group: group,\n    type: type,\n    edge: edge,\n    device: device || null,\n    seq: num(p.seq),\n    timestamp: ts,\n    metrics: metrics\n};\n\n// Chart: numeric process values only (no control/bookkeeping metrics).\nconst isData = (type === 'DDATA' || type === 'NDATA' || type === 'DBIRTH');\nconst points = isData ? metrics\n    .filter((m) => typeof m.value === 'number' &&\n        !m.name.startsWith('Node Control/') && m.name !== 'bdSeq')\n    .map((m) => ({ topic: m.name, payload: m.value, timestamp: m.timestamp })) : [];\n\nconst dataDir = env.get('ZEPHYR_A_DATA_DIR') || '/tmp';\nconst day = new Date().toISOString().slice(0, 10);\n\nnode.status({ fill: 'green', shape: 'dot', text: type + ' ' + edge + ' (' + metrics.length + ')' });\n\nreturn [\n    { payload: record, filename: dataDir + '/sparkplug-' + day + '.jsonl' },\n    points,\n    { payload: new Date(record.received).toISOString() + '  ' + type + '  ' + edge +\n        (device ? '/' + device : '') + '  ' + metrics.length + ' metric(s)' }\n];\n",
+    "func": "// Zephyr_A - Sparkplug B decoder (body of the Node-RED function node\n// \"Sparkplug B decode\" in flows.json; kept here as a file so it can be\n// reviewed and unit-tested: cloud/node-red/test/decode.test.js).\n//\n// In:  msg.topic   spBv1.0/<group>/<type>/<edge_node>[/<device>]\n//      msg.payload Buffer (Sparkplug B protobuf)\n// Out: [1] full record as JSON (data log file + debug)\n//      [2] one message per numeric data metric (chart): topic=name,\n//          payload=value, timestamp=metric timestamp (ms, UTC)\n//      [3] status text for the dashboard\n// \"sparkplug\" is the npm module sparkplug-payload (Setup -> Modules).\n\nconst parts = (msg.topic || '').split('/');\nif (parts.length < 4 || parts[0] !== 'spBv1.0') {\n    return null;\n}\nconst [, group, type, edge, device] = parts;\n\nlet p;\ntry {\n    p = sparkplug.get('spBv1.0').decodePayload(msg.payload);\n} catch (err) {\n    node.error('Sparkplug decode failed on ' + msg.topic + ': ' + err.message, msg);\n    node.status({ fill: 'red', shape: 'ring', text: 'decode error ' + type });\n    return null;\n}\n\n// 64-bit fields (timestamps, seq, bdSeq) are decoded as Long objects.\nconst num = (v) => {\n    if (v === null || v === undefined) return v;\n    if (typeof v === 'object' && typeof v.toNumber === 'function') return v.toNumber();\n    if (typeof v === 'bigint') return Number(v);\n    return v;\n};\n\n// Metric aliases: names are only sent in NBIRTH/DBIRTH; DATA uses aliases.\nconst key = group + '/' + edge + '/' + (device || '');\nconst aliases = flow.get('aliases') || {};\nif (type === 'NBIRTH' || type === 'DBIRTH') {\n    aliases[key] = {};\n    for (const m of (p.metrics || [])) {\n        if (m.alias !== undefined && m.alias !== null && m.name) {\n            aliases[key][String(num(m.alias))] = m.name;\n        }\n    }\n    flow.set('aliases', aliases);\n}\n// Known edge nodes (used by the NCMD encoder to address commands).\nif (type === 'NBIRTH' || type === 'NDEATH') {\n    const edges = flow.get('edgeNodes') || {};\n    edges[edge] = { group: group, online: type === 'NBIRTH', since: Date.now() };\n    flow.set('edgeNodes', edges);\n}\nconst map = aliases[key] || {};\n\n// Without a timestamp in the message the receive time is used, so the chart\n// still has an x value (the firmware always sends one since part 7).\nconst received = Date.now();\nconst ts = (p.timestamp !== undefined && p.timestamp !== null) ? num(p.timestamp) : received;\nconst metrics = (p.metrics || []).map((m) => {\n    const alias = (m.alias !== undefined && m.alias !== null) ? num(m.alias) : undefined;\n    return {\n        name: m.name || map[String(alias)] || ('alias:' + alias),\n        alias: alias,\n        type: m.type,\n        value: num(m.value),\n        timestamp: (m.timestamp !== undefined && m.timestamp !== null) ? num(m.timestamp) : ts\n    };\n});\n\nconst record = {\n    received: received,\n    group: group,\n    type: type,\n    edge: edge,\n    device: device || null,\n    seq: num(p.seq),\n    timestamp: ts,\n    metrics: metrics\n};\n\n// Chart: numeric process values of the devices (DBIRTH/DDATA) and the signal\n// strength of the edge node. Null values (bad quality) are left out.\nconst CHART_NODE_METRICS = ['Status/RSSI'];\nconst isData = (type === 'DDATA' || type === 'NDATA' || type === 'DBIRTH' || type === 'NBIRTH');\nconst points = isData ? metrics\n    .filter((m) => typeof m.value === 'number' &&\n        (device ? true : CHART_NODE_METRICS.includes(m.name)))\n    .map((m) => ({ topic: m.name, payload: m.value, timestamp: m.timestamp })) : [];\n\nconst dataDir = env.get('ZEPHYR_A_DATA_DIR') || '/tmp';\nconst day = new Date().toISOString().slice(0, 10);\n\nnode.status({ fill: type === 'NDEATH' ? 'red' : 'green', shape: 'dot',\n    text: type + ' ' + edge + ' (' + metrics.length + ')' });\n\nreturn [\n    { payload: record, filename: dataDir + '/sparkplug-' + day + '.jsonl' },\n    points,\n    { payload: new Date(record.received).toISOString() + '  ' + type + '  ' + edge +\n        (device ? '/' + device : '') + '  ' + metrics.length + ' metric(s)' }\n];\n",
     "outputs": 3,
     "timeout": 0,
     "noerr": 0,
@@ -312,6 +312,235 @@
     "valueType": "msg",
     "x": 630,
     "y": 200,
+    "wires": []
+  },
+  {
+    "id": "a1f0c0de0000001f",
+    "type": "comment",
+    "z": "a1f0c0de00000001",
+    "name": "Commands to the edge node (Sparkplug B NCMD): click the button on an inject node",
+    "info": "Sent to every edge node that is online (learned from NBIRTH/NDEATH).\nThe firmware accepts Sample Interval 5000-15000 ms and Batch Size 1-12;\nthe new value is confirmed with an NDATA (see the debug sidebar).",
+    "x": 330,
+    "y": 260,
+    "wires": []
+  },
+  {
+    "id": "a1f0c0de00000022",
+    "type": "inject",
+    "z": "a1f0c0de00000001",
+    "name": "Rebirth",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "",
+    "crontab": "",
+    "once": false,
+    "onceDelay": 0.1,
+    "topic": "",
+    "payload": "{\"name\": \"Node Control/Rebirth\", \"type\": \"Boolean\", \"value\": true}",
+    "payloadType": "json",
+    "x": 180,
+    "y": 300,
+    "wires": [
+      [
+        "a1f0c0de00000020"
+      ]
+    ]
+  },
+  {
+    "id": "a1f0c0de00000023",
+    "type": "inject",
+    "z": "a1f0c0de00000001",
+    "name": "Sample interval 5 s",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "",
+    "crontab": "",
+    "once": false,
+    "onceDelay": 0.1,
+    "topic": "",
+    "payload": "{\"name\": \"Config/Sample Interval\", \"type\": \"Int64\", \"value\": 5000}",
+    "payloadType": "json",
+    "x": 180,
+    "y": 340,
+    "wires": [
+      [
+        "a1f0c0de00000020"
+      ]
+    ]
+  },
+  {
+    "id": "a1f0c0de00000024",
+    "type": "inject",
+    "z": "a1f0c0de00000001",
+    "name": "Sample interval 10 s",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "",
+    "crontab": "",
+    "once": false,
+    "onceDelay": 0.1,
+    "topic": "",
+    "payload": "{\"name\": \"Config/Sample Interval\", \"type\": \"Int64\", \"value\": 10000}",
+    "payloadType": "json",
+    "x": 180,
+    "y": 380,
+    "wires": [
+      [
+        "a1f0c0de00000020"
+      ]
+    ]
+  },
+  {
+    "id": "a1f0c0de00000025",
+    "type": "inject",
+    "z": "a1f0c0de00000001",
+    "name": "Sample interval 15 s",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "",
+    "crontab": "",
+    "once": false,
+    "onceDelay": 0.1,
+    "topic": "",
+    "payload": "{\"name\": \"Config/Sample Interval\", \"type\": \"Int64\", \"value\": 15000}",
+    "payloadType": "json",
+    "x": 180,
+    "y": 420,
+    "wires": [
+      [
+        "a1f0c0de00000020"
+      ]
+    ]
+  },
+  {
+    "id": "a1f0c0de00000026",
+    "type": "inject",
+    "z": "a1f0c0de00000001",
+    "name": "Batch size 1 (send every sample)",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "",
+    "crontab": "",
+    "once": false,
+    "onceDelay": 0.1,
+    "topic": "",
+    "payload": "{\"name\": \"Config/Batch Size\", \"type\": \"Int64\", \"value\": 1}",
+    "payloadType": "json",
+    "x": 180,
+    "y": 460,
+    "wires": [
+      [
+        "a1f0c0de00000020"
+      ]
+    ]
+  },
+  {
+    "id": "a1f0c0de00000027",
+    "type": "inject",
+    "z": "a1f0c0de00000001",
+    "name": "Batch size 6 (1 message/min)",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "",
+    "crontab": "",
+    "once": false,
+    "onceDelay": 0.1,
+    "topic": "",
+    "payload": "{\"name\": \"Config/Batch Size\", \"type\": \"Int64\", \"value\": 6}",
+    "payloadType": "json",
+    "x": 180,
+    "y": 500,
+    "wires": [
+      [
+        "a1f0c0de00000020"
+      ]
+    ]
+  },
+  {
+    "id": "a1f0c0de00000028",
+    "type": "inject",
+    "z": "a1f0c0de00000001",
+    "name": "Reboot device",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "",
+    "crontab": "",
+    "once": false,
+    "onceDelay": 0.1,
+    "topic": "",
+    "payload": "{\"name\": \"Node Control/Reboot\", \"type\": \"Boolean\", \"value\": true}",
+    "payloadType": "json",
+    "x": 180,
+    "y": 540,
+    "wires": [
+      [
+        "a1f0c0de00000020"
+      ]
+    ]
+  },
+  {
+    "id": "a1f0c0de00000020",
+    "type": "function",
+    "z": "a1f0c0de00000001",
+    "name": "Sparkplug B encode NCMD",
+    "func": "// Zephyr_A - Node-RED function \"Sparkplug B encode NCMD\" (part 7).\n// Source of the function node in flows.json (kept here for review and the\n// unit test in test/ncmd.test.js). External module: sparkplug-payload (Tahu).\n//\n// In:  msg.payload = one metric { name, type, value }\n//                    or { metrics: [ { name, type, value }, ... ] }\n//      msg.edge    = edge node id (optional; default: every edge node that is\n//                    online, learned from NBIRTH/NDEATH by the decoder)\n// Out: one MQTT message per edge node:\n//      topic spBv1.0/<group>/NCMD/<edge>, payload = Sparkplug B protobuf\n//\n// Commands the firmware understands (docs/07-sparkplug-tid.md):\n//   Node Control/Rebirth   Boolean true\n//   Node Control/Reboot    Boolean true\n//   Config/Sample Interval Int64   5000..15000 [ms]\n//   Config/Batch Size      Int64   1..12\n\nconst edges = flow.get('edgeNodes') || {};\nconst targets = msg.edge ? [msg.edge] : Object.keys(edges).filter((e) => edges[e].online);\nif (targets.length === 0) {\n    node.warn('No edge node online yet (waiting for an NBIRTH)');\n    return null;\n}\n\nconst metrics = (msg.payload && Array.isArray(msg.payload.metrics)) ? msg.payload.metrics : [msg.payload];\nfor (const m of metrics) {\n    if (!m || typeof m.name !== 'string' || typeof m.type !== 'string' || m.value === undefined) {\n        node.error('NCMD metric needs name, type and value: ' + JSON.stringify(m));\n        return null;\n    }\n}\n\nconst payload = sparkplug.get('spBv1.0').encodePayload({ timestamp: Date.now(), metrics: metrics });\nconst out = targets.map((e) => ({\n    topic: 'spBv1.0/' + ((edges[e] && edges[e].group) || 'ProjektA') + '/NCMD/' + e,\n    payload: Buffer.from(payload)\n}));\nnode.status({ fill: 'blue', shape: 'dot', text: metrics.map((m) => m.name + '=' + m.value).join(', ') + ' -> ' + targets.join(', ') });\nreturn [out];\n",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [
+      {
+        "var": "sparkplug",
+        "module": "sparkplug-payload"
+      }
+    ],
+    "x": 490,
+    "y": 420,
+    "wires": [
+      [
+        "a1f0c0de00000021",
+        "a1f0c0de00000006"
+      ]
+    ]
+  },
+  {
+    "id": "a1f0c0de00000021",
+    "type": "mqtt out",
+    "z": "a1f0c0de00000001",
+    "name": "NCMD",
+    "topic": "",
+    "qos": "0",
+    "retain": "false",
+    "respTopic": "",
+    "contentType": "",
+    "userProps": "",
+    "correl": "",
+    "expiry": "",
+    "broker": "a1f0c0de00000003",
+    "x": 720,
+    "y": 420,
     "wires": []
   }
 ]

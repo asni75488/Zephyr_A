@@ -45,10 +45,16 @@ if (type === 'NBIRTH' || type === 'DBIRTH') {
     }
     flow.set('aliases', aliases);
 }
+// Known edge nodes (used by the NCMD encoder to address commands).
+if (type === 'NBIRTH' || type === 'NDEATH') {
+    const edges = flow.get('edgeNodes') || {};
+    edges[edge] = { group: group, online: type === 'NBIRTH', since: Date.now() };
+    flow.set('edgeNodes', edges);
+}
 const map = aliases[key] || {};
 
-// Without a device timestamp (e.g. the part 6 self-test, sent before time
-// sync exists) the receive time is used, so the chart still has an x value.
+// Without a timestamp in the message the receive time is used, so the chart
+// still has an x value (the firmware always sends one since part 7).
 const received = Date.now();
 const ts = (p.timestamp !== undefined && p.timestamp !== null) ? num(p.timestamp) : received;
 const metrics = (p.metrics || []).map((m) => {
@@ -73,17 +79,20 @@ const record = {
     metrics: metrics
 };
 
-// Chart: numeric process values only (no control/bookkeeping metrics).
-const isData = (type === 'DDATA' || type === 'NDATA' || type === 'DBIRTH');
+// Chart: numeric process values of the devices (DBIRTH/DDATA) and the signal
+// strength of the edge node. Null values (bad quality) are left out.
+const CHART_NODE_METRICS = ['Status/RSSI'];
+const isData = (type === 'DDATA' || type === 'NDATA' || type === 'DBIRTH' || type === 'NBIRTH');
 const points = isData ? metrics
     .filter((m) => typeof m.value === 'number' &&
-        !m.name.startsWith('Node Control/') && m.name !== 'bdSeq')
+        (device ? true : CHART_NODE_METRICS.includes(m.name)))
     .map((m) => ({ topic: m.name, payload: m.value, timestamp: m.timestamp })) : [];
 
 const dataDir = env.get('ZEPHYR_A_DATA_DIR') || '/tmp';
 const day = new Date().toISOString().slice(0, 10);
 
-node.status({ fill: 'green', shape: 'dot', text: type + ' ' + edge + ' (' + metrics.length + ')' });
+node.status({ fill: type === 'NDEATH' ? 'red' : 'green', shape: 'dot',
+    text: type + ' ' + edge + ' (' + metrics.length + ')' });
 
 return [
     { payload: record, filename: dataDir + '/sparkplug-' + day + '.jsonl' },
