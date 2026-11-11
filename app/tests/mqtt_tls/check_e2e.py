@@ -42,7 +42,7 @@ def main():
     names = {m.get("name"): m for m in nb["metrics"]}
     check("NBIRTH seq 0", nb.get("seq") == 0, nb.get("seq"))
     check("NBIRTH has bdSeq (Int64)", names.get("bdSeq", {}).get("datatype") == 4)
-    for n in ("Node Control/Rebirth", "Node Control/Reboot", "Properties/FW Version",
+    for n in ("Node Control/Rebirth", "Node Control/Reboot", "Node Control/Sleep", "Properties/FW Version",
               "Config/Sample Interval", "Config/Batch Size", "Status/RSSI"):
         check(f"NBIRTH metric {n}", n in names)
     check("NBIRTH: every metric has name, datatype and timestamp",

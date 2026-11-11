@@ -4,7 +4,7 @@
 Independent of nanopb and protoc: reads/writes the protobuf wire format of
 the fields the firmware uses (Eclipse Tahu sparkplug_b.proto):
   Payload: 1 timestamp, 2 metrics (repeated), 3 seq
-  Metric:  1 name, 2 alias, 3 timestamp, 4 datatype, 7 is_null,
+  Metric:  1 name, 2 alias, 3 timestamp, 4 datatype, 5 is_historical, 7 is_null,
            10 int_value, 11 long_value, 12 float_value, 13 double_value,
            14 boolean_value, 15 string_value
 
@@ -66,6 +66,8 @@ def decode_metric(buf):
             m["timestamp"] = val
         elif num == 4:
             m["datatype"] = val
+        elif num == 5:
+            m["is_historical"] = bool(val)
         elif num == 7:
             m["is_null"] = bool(val)
         elif num == 10:

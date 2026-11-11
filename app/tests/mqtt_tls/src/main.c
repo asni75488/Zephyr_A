@@ -10,6 +10,9 @@
  *   4. prints the counters and the Mbed TLS heap peak; run.sh checks the
  *      broker side with spb.py
  *
+ * Interval build (prj-interval.conf, part 9): the uplink thread requests the
+ * network itself (stubs.c emulates the modem); main only feeds measurements.
+ *
  * Options (zephyr.exe): -run_s=<s> -link_loss_at=<s>
  *
  * SPDX-License-Identifier: Apache-2.0
@@ -27,9 +30,11 @@
 #include "app_logic.h"
 #include "mqtt_client.h"
 #include "network.h"
+#include "power.h"
 #include "security.h"
 #include "sparkplug.h"
 #include "timesync.h"
+#include "uplink.h"
 
 #include "cmdline.h" /* native_sim command line options */
 #include "posix_native_task.h"
@@ -79,6 +84,7 @@ int main(void)
 	size_t blocks = 0;
 	int ret;
 
+	(void)app_power_init();
 	(void)app_security_init();
 	(void)timesync_init();
 	(void)app_logic_init();
@@ -101,7 +107,11 @@ int main(void)
 		k_sleep(K_SECONDS(1));
 		exit(3);
 	}
-	k_event_post(network_events(), NETWORK_EVT_UP);
+	if (uplink_init() == 0) {
+		(void)uplink_start(); /* interval mode: uplink requests the network */
+	} else {
+		k_event_post(network_events(), NETWORK_EVT_UP);
+	}
 
 	for (uint32_t s = 1; s <= run_s; s++) {
 		k_sleep(K_SECONDS(1));
@@ -117,11 +127,14 @@ int main(void)
 
 	app_mqtt_get_stats(&st);
 	mbedtls_memory_buffer_alloc_max_get(&heap_max, &blocks);
+	struct uplink_stats us;
+
+	uplink_get_stats(&us);
 	LOG_INF("TEST RESULT state=%s connects=%u failures=%u tx=%u tx_bytes=%u dropped=%u "
-		"rx=%u connect_ms=%u suite=0x%04x mbedtls_heap_peak=%u",
+		"rx=%u connect_ms=%u suite=0x%04x mbedtls_heap_peak=%u uplinks=%u",
 		app_mqtt_state_str(app_mqtt_get_state()), st.connects, st.connect_failures,
 		st.tx_msgs, st.tx_payload_bytes, st.tx_dropped, st.rx_msgs, st.last_connect_ms,
-		st.last_ciphersuite, (unsigned int)heap_max);
+		st.last_ciphersuite, (unsigned int)heap_max, us.uplinks);
 	exit(0);
 	return 0;
 }

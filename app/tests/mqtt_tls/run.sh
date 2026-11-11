@@ -35,6 +35,9 @@ chmod 755 "$W" # the broker drops root privileges and must reach its files
 PKI=$W/pki
 BUILD=$W/build
 EXE=$BUILD/zephyr/zephyr.exe
+BUILDI=$W/build-interval
+EXE_CONT=$EXE
+EXE_INT=$BUILDI/zephyr/zephyr.exe
 PASS=0
 FAIL=0
 
@@ -54,6 +57,12 @@ echo "== Build (native_sim/native/64)"
     "-DTEST_CA_DER=$PKI/ecdsa-root.der;$HERE/../../ca/isrg-root-yr.der;$HERE/../../ca/isrg-root-x2.der;$PKI/rsa-root.der" \
     -DCONFIG_APP_MQTT_CONNACK_TIMEOUT_S=5 >"$W/build.log" 2>&1) || { tail -30 "$W/build.log"; exit 1; }
 if grep -E "warning:" "$W/build.log"; then echo "Compiler warnings"; exit 1; fi
+echo "== Build interval-uplink variant (part 9, prj-interval.conf)"
+(cd "$WS" && west build -p always -b native_sim/native/64 "$HERE" -d "$BUILDI" -- \
+    "-DTEST_CA_DER=$PKI/ecdsa-root.der;$HERE/../../ca/isrg-root-yr.der;$HERE/../../ca/isrg-root-x2.der;$PKI/rsa-root.der" \
+    -DCONFIG_APP_MQTT_CONNACK_TIMEOUT_S=5 "-DEXTRA_CONF_FILE=$HERE/prj-interval.conf" \
+    >"$W/build-interval.log" 2>&1) || { tail -30 "$W/build-interval.log"; exit 1; }
+if grep -E "warning:" "$W/build-interval.log"; then echo "Compiler warnings"; exit 1; fi
 
 echo "== Broker users (ACL from cloud/mosquitto/acl)"
 : >"$W/passwd"
@@ -80,7 +89,7 @@ log_type warning
 log_type notice
 log_type information
 listener 1883 127.0.0.1
-listener 8883
+listener ${BROKER_PORT:-8883}
 certfile $PKI/$1-fullchain.pem
 keyfile $PKI/$1-leaf.key
 tls_version tlsv1.2
@@ -138,7 +147,8 @@ start_broker ecdsa
 "$SUB" -h 127.0.0.1 -p 1883 -u nodered -P nodered-pass-123 -t 'spBv1.0/#' -v -F '%t %x' >"$W/sub.log" 2>&1 &
 SUBPID=$!
 (
-    sleep 5; ncmd "Config/Sample Interval=Int64:5000" "#6=Int64:4" "Foo/Bar=Int64:1"
+    sleep 5; ncmd "Config/Sample Interval=Int64:5000" "#6=Int64:4" "Foo/Bar=Int64:1" \
+        "Node Control/Sleep=Int64:120"
     sleep 5; ncmd "Node Control/Rebirth=Boolean:true"
     sleep 2; python3 "$HERE/spb.py" ncmd "Foo=Int64:1" | "$PUB" -h 127.0.0.1 -p 1883 -u nodered \
         -P nodered-pass-123 -t spBv1.0/ProjektA/DCMD/esp32c6-test0001/sensors -s
@@ -157,6 +167,7 @@ check "NCMD batch size by alias applied" "Batch size set to 4"
 check "Unknown NCMD metric reported as security event" "SECURITY: NCMD with unsupported metric Foo/Bar"
 check "DCMD ignored (no writable device metrics)" "SECURITY: command on spBv1.0/ProjektA/DCMD/.* ignored"
 check "Rebirth executed" "NCMD: Node Control/Rebirth"
+check "NCMD Sleep rejected without LP core (native_sim)" "SECURITY: NCMD Sleep rejected"
 check "Link loss closes session without backoff" "Network link lost"
 check "Reconnects after link loss" "connects=2 "
 check_not "No errors logged" "<err>"
@@ -283,6 +294,84 @@ check "Network not reported up without time" "no time .* network stays down"
 check_not "No MQTT session" "MQTT connected"
 stop_broker
 kill "$SNTP" 2>/dev/null || true
+
+echo "== 12. Interval uplink (part 9): link only for uplinks, NDEATH + clean DISCONNECT, historical data"
+python3 "$HERE/sntp_server.py" 1123 &
+SNTP=$!
+sleep 0.5
+start_broker ecdsa
+"$SUB" -h 127.0.0.1 -p 1883 -u nodered -P nodered-pass-123 -t 'spBv1.0/#' -v -F '%t %x' >"$W/sub.log" 2>&1 &
+SUBPID=$!
+EXE=$EXE_INT
+run_device 34 # ends between uplink #2 and #3
+EXE=$EXE_CONT
+sleep 1
+kill $SUBPID 2>/dev/null || true
+save_log interval
+cp "$W/sub.log" "$W/sub-interval.log"
+check "First uplink right after boot" "Uplink #1 ok"
+check "Session ended with NDEATH" "NDEATH bdSeq [0-9]+ \\(planned\\)"
+check "Clean MQTT DISCONNECT" "MQTT DISCONNECT \\(planned\\)"
+check "Modem switched off after the uplink" "TEST: network down"
+check "Early uplink when the batch queue is 3/4 full" "Uplink #2 early: batch queue"
+check "Second uplink completed" "Uplink #2 ok"
+check "No reconnect while the link is down (only uplink sessions)" "connects=2 .*uplinks=2"
+check "Broker saw clean disconnects (no Will)" "esp32c6-test0001 disconnected\\." "$W/broker.log"
+check_not "Broker never closed a session on its own" "esp32c6-test0001 closed its connection|exceeded timeout" "$W/broker.log"
+check_not "No errors logged" "<err>"
+python3 - "$W/sub-interval.log" "$HERE" <<'PY' | tee "$W/interval.txt"
+import sys
+sys.path.insert(0, sys.argv[2])
+import spb
+msgs = []
+for line in open(sys.argv[1], encoding="ascii"):
+    parts = line.split()
+    if len(parts) == 2 and "/NCMD/" not in parts[0]:
+        p = spb.decode_payload(bytes.fromhex(parts[1]))
+        p["type"] = parts[0].split("/")[2]
+        msgs.append(p)
+def bdseq(m):
+    return next((x.get("value") for x in m["metrics"] if x.get("name") == "bdSeq"), None)
+births = [bdseq(m) for m in msgs if m["type"] == "NBIRTH"]
+deaths = [bdseq(m) for m in msgs if m["type"] == "NDEATH"]
+def check(desc, ok, detail=""):
+    print(("  PASS  " if ok else "  FAIL  ") + desc + ("" if ok else f" ({detail})"))
+check("One NDEATH per session with the bdSeq of its NBIRTH", births == deaths and len(births) >= 2,
+      f"births {births} deaths {deaths}")
+hist = [x for m in msgs if m["type"] == "DDATA" for x in m["metrics"] if x.get("is_historical")]
+check("Data measured between uplinks marked is_historical", len(hist) > 0, len(hist))
+ts = [x["timestamp"] for m in msgs if m["type"] == "DDATA" for x in m["metrics"]]
+check("All DDATA values delivered in time order", ts == sorted(ts) and len(ts) >= 15, len(ts))
+PY
+PASS=$((PASS + $(grep -c "  PASS" "$W/interval.txt" || true)))
+FAIL=$((FAIL + $(grep -c "  FAIL" "$W/interval.txt" || true)))
+grep "TEST RESULT" "$W/dev.log" | sed 's/^/  /' || true
+grep -E "Uplink #[0-9]+ (ok|timeout)" "$W/dev.log" | sed 's/^.*Uplink/  Uplink/' || true
+stop_broker
+
+echo "== 13. Data on the wire (TLS bytes via counting proxy), part 9"
+BROKER_PORT=18883 start_broker ecdsa
+python3 "$HERE/byteproxy.py" 8883 18883 "$W/bytes-cont.txt" &
+PROXY=$!
+sleep 0.5
+run_device 33
+sleep 1
+kill $PROXY 2>/dev/null || true; wait $PROXY 2>/dev/null || true
+save_log bytes-cont
+python3 "$HERE/byteproxy.py" 8883 18883 "$W/bytes-int.txt" &
+PROXY=$!
+sleep 0.5
+EXE=$EXE_INT
+run_device 34
+EXE=$EXE_CONT
+sleep 1
+kill $PROXY 2>/dev/null || true; wait $PROXY 2>/dev/null || true
+save_log bytes-int
+stop_broker
+kill "$SNTP" 2>/dev/null || true
+echo "  continuous (1 session, 33 s, 11 DDATA):"; sed 's/^/    /' "$W/bytes-cont.txt" 2>/dev/null || true
+echo "  interval (one line per uplink):"; sed 's/^/    /' "$W/bytes-int.txt" 2>/dev/null || true
+check "Byte counts recorded" "^conn 1 up [0-9]+ down [0-9]+" "$W/bytes-int.txt"
 
 echo "== 11. No secrets in any device log"
 if grep -l "test-password-123" "$W"/dev-*.log >/dev/null 2>&1; then

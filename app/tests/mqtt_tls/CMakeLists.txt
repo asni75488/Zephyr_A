@@ -42,9 +42,11 @@ target_sources(app PRIVATE
     ${ZEPHYR_A_APP}/src/app_logic.c
     ${ZEPHYR_A_APP}/src/timesync.c
     ${ZEPHYR_A_APP}/src/security.c
+    ${ZEPHYR_A_APP}/src/power.c
+    ${ZEPHYR_A_APP}/src/uplink.c
     ${ZEPHYR_A_APP}/src/proto/sparkplug_b.pb.c
 )
-target_include_directories(app PRIVATE ${ZEPHYR_A_APP}/src)
+target_include_directories(app PRIVATE ${ZEPHYR_A_APP}/src ${ZEPHYR_A_APP}/common)
 zephyr_include_directories(${ZEPHYR_A_APP}/config)
 
 include(${ZEPHYR_A_APP}/cmake/ca_certs.cmake)
