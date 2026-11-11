@@ -77,3 +77,28 @@
 		mdm-power-gpios = <&gpio0 22 GPIO_ACTIVE_HIGH>;
 	};
 };
+
+/* Part 9: light sleep. The RTC timer wakes the HP core from light sleep
+ * (power state "standby") in time for the next kernel timeout, e.g. the
+ * next measurement (Zephyr 4.4.0 samples/boards/espressif/light_sleep).
+ */
+&rtc_timer {
+	status = "okay";
+	wakeup-source;
+};
+
+/* Part 9: memory shared with the LP core (app/common/lp_shared.h). The last
+ * 64 B of the LP SRAM area reserved for the LP image (ulp_ram) are given to
+ * app_lp_shm. app/remote/boards/esp32c6_devkitc_lpcore.overlay makes the
+ * same change, so both images agree on the address (0x50003bc0).
+ */
+&ulp_ram {
+	reg = <0x0 0x3bc0>;
+};
+
+&sramlp {
+	app_lp_shm: memory@3bc0 {
+		compatible = "mmio-sram";
+		reg = <0x3bc0 0x40>;
+	};
+};

@@ -20,6 +20,7 @@
 
 #include "app_logic.h"
 #include "modbus.h"
+#include "power.h"
 #include "sensor.h"
 #include "timesync.h"
 
@@ -288,7 +289,12 @@ static void sensor_thread(void *p1, void *p2, void *p3)
 
 		int64_t start = k_uptime_get();
 
+		/* No light sleep during a read: a Modbus RTU response arriving
+		 * while the HP core sleeps would be lost (part 9).
+		 */
+		app_power_sleep_lock();
 		(void)app_sensor_read_all(&m);
+		app_power_sleep_unlock();
 
 		int64_t duration = k_uptime_get() - start;
 		uint32_t bad = 0U;

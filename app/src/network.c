@@ -10,11 +10,18 @@
  *   CONNECTED --L4_DISCONNECTED--> REGISTERING (grace period, driver redials)
  *   any state --timeout/error--> BACKOFF (modem suspended) --delay--> STARTING
  *
+ * Power (part 9): light sleep is locked while the modem runs (its UART has
+ * no flow control). Before the modem is resumed, PSM is switched off and the
+ * eDRX request is set; after it is suspended, the radio is switched off
+ * (AT+CFUN=0). These raw AT commands are sent while the driver has released
+ * the UART (modem in AT command mode, no CMUX).
+ *
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #include <errno.h>
 #include <stdio.h>
+#include <string.h>
 
 #include <zephyr/device.h>
 #include <zephyr/drivers/cellular.h>
@@ -32,6 +39,7 @@
 #include <zephyr/sys/atomic.h>
 
 #include "network.h"
+#include "power.h"
 #include "timesync.h"
 
 LOG_MODULE_REGISTER(network, CONFIG_APP_LOG_LEVEL);
@@ -202,11 +210,100 @@ static void cmux_recovery(void)
 	LOG_DBG("CMUX close-down sent to modem");
 }
 
+/*
+ * Send one AT command on the raw modem UART and wait for OK/ERROR.
+ * Only used while modem_cellular has released the UART (suspended).
+ * Returns 0 (OK), -EIO (ERROR) or -ETIMEDOUT.
+ */
+static int modem_raw_at(const char *cmd, int timeout_ms)
+{
+	char tail[16] = "";
+	size_t len = 0;
+	unsigned char c;
+	int64_t end;
+
+	if (!device_is_ready(modem_uart)) {
+		return -ENODEV;
+	}
+	while (uart_poll_in(modem_uart, &c) == 0) {
+		/* drop stale bytes (URCs) */
+	}
+	for (const char *p = cmd; *p != '\0'; p++) {
+		uart_poll_out(modem_uart, (unsigned char)*p);
+	}
+	uart_poll_out(modem_uart, '\r');
+
+	end = k_uptime_get() + timeout_ms;
+	while (k_uptime_get() < end) {
+		if (uart_poll_in(modem_uart, &c) != 0) {
+			k_msleep(5);
+			continue;
+		}
+		/* keep the last bytes only: "OK\r\n" / "ERROR\r\n" end the reply */
+		if (len == (sizeof(tail) - 1U)) {
+			memmove(tail, &tail[1], len - 1U);
+			len--;
+		}
+		tail[len++] = (char)c;
+		tail[len] = '\0';
+		if (strstr(tail, "OK\r") != NULL) {
+			return 0;
+		}
+		if (strstr(tail, "ERROR") != NULL) {
+			return -EIO;
+		}
+	}
+	return -ETIMEDOUT;
+}
+
+/* Before resume: settings that must hold while the link is up. */
+static void modem_power_settings(void)
+{
+	char cmd[32];
+	int ret;
+
+	/* No PSM: without a PWRKEY pin the module could only leave PSM at its
+	 * own periodic update and would be unreachable for the driver.
+	 */
+	ret = modem_raw_at("AT+CPSMS=0", 1000);
+	LOG_DBG("AT+CPSMS=0 -> %d", ret);
+
+	if (strlen(CONFIG_APP_MODEM_EDRX) == 0) {
+		(void)snprintf(cmd, sizeof(cmd), "AT+CEDRXS=0");
+	} else {
+		/* AcT 4 = E-UTRAN (LTE-M), 3GPP TS 27.007 */
+		(void)snprintf(cmd, sizeof(cmd), "AT+CEDRXS=1,4,\"%s\"", CONFIG_APP_MODEM_EDRX);
+	}
+	ret = modem_raw_at(cmd, 1000);
+	if (strlen(CONFIG_APP_MODEM_EDRX) != 0) {
+		LOG_INF("eDRX request %s: %s", CONFIG_APP_MODEM_EDRX,
+			(ret == 0) ? "OK" : "not accepted");
+	}
+}
+
+/* After suspend: minimum functionality = RF and SIM off. */
+static void modem_radio_off(void)
+{
+	int ret;
+
+	if (!IS_ENABLED(CONFIG_APP_MODEM_RADIO_OFF)) {
+		return;
+	}
+	ret = modem_raw_at("AT+CFUN=0", 5000);
+	if (ret == 0) {
+		LOG_INF("Modem radio off (AT+CFUN=0)");
+	} else {
+		LOG_WRN("AT+CFUN=0 failed (%d) - modem stays registered (higher current)", ret);
+	}
+}
+
 static void modem_start(void)
 {
 	int ret;
 
+	app_power_sleep_lock(); /* UART traffic from now on */
 	cmux_recovery();
+	modem_power_settings();
 
 	LOG_INF("Starting modem (APN \"%s\")", CONFIG_MODEM_CELLULAR_APN);
 	ret = pm_device_action_run(modem, PM_DEVICE_ACTION_RESUME);
@@ -240,8 +337,10 @@ static void modem_stop(void)
 	if ((ret != 0) && (ret != -EALREADY)) {
 		LOG_ERR("Modem suspend failed (%d)", ret);
 	}
+	modem_radio_off();
 
 	modem_running = false;
+	app_power_sleep_unlock();
 	atomic_set(&reg_status, CELLULAR_REGISTRATION_UNKNOWN);
 }
 
