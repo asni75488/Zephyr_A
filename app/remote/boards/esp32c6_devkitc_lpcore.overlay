@@ -1,0 +1,26 @@
+/*
+ * Zephyr_A - LP-core devicetree overlay (part 9).
+ *
+ * Same LP SRAM layout as the HP image (app/app.overlay): the last 64 B of
+ * the area reserved for the LP image become app_lp_shm, the memory shared
+ * between the cores (app/common/lp_shared.h).
+ *
+ * The LP UART is not used (console off), so GPIO4/GPIO5 stay free.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+&ulp_ram {
+	reg = <0x0 0x3bc0>;
+};
+
+&sramlp {
+	app_lp_shm: memory@3bc0 {
+		compatible = "mmio-sram";
+		reg = <0x3bc0 0x40>;
+	};
+};
+
+&lp_uart {
+	status = "disabled";
+};

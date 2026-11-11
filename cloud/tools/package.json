@@ -1,0 +1,13 @@
+{
+  "name": "zephyr-a-cloud-tools",
+  "private": true,
+  "description": "Test tools for the Zephyr_A cloud server (Sparkplug B test publisher)",
+  "license": "Apache-2.0",
+  "scripts": {
+    "publish-test": "node spb-test-publisher.js"
+  },
+  "dependencies": {
+    "mqtt": "^5.16.1",
+    "sparkplug-payload": "^1.0.3"
+  }
+}

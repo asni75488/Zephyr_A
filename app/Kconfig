@@ -1,0 +1,532 @@
+# Zephyr_A - application Kconfig
+#
+# Project-specific settings. Values are set in prj.conf (and secrets in
+# secrets.conf). Thread priorities/stacks are documented in
+# docs/02-arkitektur.md, section "Thread-tabel".
+#
+# SPDX-License-Identifier: Apache-2.0
+
+menu "Zephyr_A application"
+
+module = APP
+module-str = Zephyr_A application
+source "subsys/logging/Kconfig.template.log_config"
+
+menu "Data acquisition"
+
+config APP_SAMPLE_INTERVAL_MS
+	int "Sampling interval [ms]"
+	range 5000 15000
+	default 10000
+	help
+	  Fixed sampling interval. The requirement allows 5-15 s; the range
+	  makes it impossible to build a firmware outside the requirement.
+
+config APP_BATCH_SIZE
+	int "Samples per MQTT publish (batching)"
+	range 1 12
+	default 6
+	help
+	  Number of samples collected before one Sparkplug B DDATA message is
+	  sent. 6 x 10 s = one message per minute. Must be <= APP_BATCH_MAX.
+
+config APP_BATCH_MAX
+	int
+	default 12
+	help
+	  Compile-time capacity of struct sample_batch.
+
+config APP_SAMPLE_QUEUE_LEN
+	int "Length of the measurement queue (sensor -> app_logic)"
+	default 16
+	help
+	  16 x 10 s = 160 s of buffering if app_logic is blocked.
+
+config APP_SOURCE_DIE_TEMP
+	bool "Read the ESP32-C6 internal temperature sensor (coretemp)"
+	default y
+	help
+	  Uses the Zephyr sensor API on the devicetree node "coretemp"
+	  (espressif,esp32-temp), channel SENSOR_CHAN_DIE_TEMP.
+
+config APP_SENSOR_RETRY_DELAY_MS
+	int "Delay before the single retry of a failed sensor read [ms]"
+	default 20
+
+config APP_SENSOR_SIMULATION
+	bool "Generate simulated values (test without hardware)"
+	help
+	  All channels (internal temperature and Modbus registers) are
+	  generated in software. No sensor or Modbus hardware is accessed, but
+	  the rest of the chain (timer, queue, quality flags, retry/backoff)
+	  runs exactly as with real hardware. Enable with
+	  scripts\build.ps1 -Simulation (adds app/overlay-sim.conf).
+
+config APP_SENSOR_SIM_FAULT_EVERY
+	int "Simulate a read error every N-th cycle (0 = never)"
+	depends on APP_SENSOR_SIMULATION
+	default 0
+	help
+	  Makes the simulated Modbus transaction fail with -ETIMEDOUT in every
+	  N-th cycle (and the internal temperature read with -EIO), to test
+	  error logging, retry, backoff and the quality flag.
+
+menuconfig APP_MODBUS_RTU
+	bool "Modbus RTU client (RS485)"
+	depends on MODBUS_ROLE_CLIENT || MODBUS_ROLE_CLIENT_SERVER || APP_SENSOR_SIMULATION
+	help
+	  Poll a Modbus RTU slave on the interface defined by the devicetree
+	  node with compatible "zephyr,modbus-serial" (app/modbus-rtu.overlay).
+	  The register table (address, function, scaling) is in modbus.c.
+	  Enable with scripts\build.ps1 -ModbusRtu (adds app/overlay-modbus-rtu.conf).
+
+if APP_MODBUS_RTU
+
+config APP_MODBUS_SLAVE_ADDR
+	int "Slave (unit) address"
+	range 1 247
+	default 1
+
+config APP_MODBUS_BAUDRATE
+	int "Baud rate"
+	default 9600
+
+choice APP_MODBUS_PARITY
+	prompt "Parity"
+	default APP_MODBUS_PARITY_EVEN
+	help
+	  Zephyr's RTU client is standard compliant: even/odd parity uses
+	  1 stop bit, no parity uses 2 stop bits. The slave (e.g. ModbusTools
+	  or Modbus Slave on the PC) must use the same setting.
+
+config APP_MODBUS_PARITY_EVEN
+	bool "Even (8E1) - Modbus default"
+
+config APP_MODBUS_PARITY_ODD
+	bool "Odd (8O1)"
+
+config APP_MODBUS_PARITY_NONE
+	bool "None (8N2)"
+
+endchoice
+
+config APP_MODBUS_RESP_TIMEOUT_MS
+	int "Response timeout per request [ms]"
+	default 300
+
+config APP_MODBUS_RETRIES
+	int "Retries per request after the first attempt"
+	range 0 5
+	default 2
+
+config APP_MODBUS_RETRY_BACKOFF_MS
+	int "Delay before the first retry [ms] (doubled for each retry)"
+	default 100
+
+config APP_MODBUS_MAX_SKIP_CYCLES
+	int "Max number of sampling cycles skipped after repeated failures"
+	default 8
+	help
+	  After n consecutive failed cycles the slave is not polled for
+	  min(2^(n-1) - 1, this value) cycles (values are marked "stale").
+	  This avoids filling the bus and the log while a slave is offline.
+
+endif # APP_MODBUS_RTU
+
+endmenu
+
+menu "Sparkplug B"
+
+config APP_SPARKPLUG_GROUP_ID
+	string "Sparkplug group id"
+	default "ProjektA"
+	help
+	  Topic: spBv1.0/<group_id>/<msg_type>/<edge_node_id>[/<device_id>].
+	  The edge node id is derived from the hardware id (device_info).
+
+config APP_SPARKPLUG_BATCH_QUEUE_LEN
+	int "Batches waiting for the MQTT session (app_logic -> sparkplug)"
+	default 24 if APP_UPLINK_INTERVAL
+	default 4
+	help
+	  While MQTT is down, batches are kept here (not encoded) and sent
+	  after the next BIRTH. 4 x 6 x 10 s = 4 minutes of data. Each slot is
+	  one struct measurement_batch (~680 B). In interval mode (part 9) the
+	  queue holds the data between two uplinks: 24 slots x 12 x 10 s = 48
+	  minutes with overlay-lowpower.conf; an uplink starts early when the
+	  queue is 3/4 full, so no data is lost.
+
+config APP_SPARKPLUG_STATUS_INTERVAL_S
+	int "NDATA with Status/RSSI, Status/Uptime, Status/MQTT Connects every N s (0 = never)"
+	default 900
+	help
+	  About 60 B every 15 minutes. The same metrics are always in NBIRTH.
+
+config APP_SPARKPLUG_REBOOT_MIN_UPTIME_S
+	int "Reject NCMD Node Control/Reboot during the first N s after boot"
+	default 60
+	help
+	  Reboot-loop protection: a faulty or compromised host application that
+	  repeats the reboot command cannot keep the device from ever working
+	  (availability, IEC 62443-4-2 CR 7.1). 0 = no limit.
+
+config APP_SPARKPLUG_DEVICE_ID
+	string "Sparkplug device id for the on-board sensors"
+	default "sensors"
+
+endmenu
+
+menu "Cellular network"
+
+config APP_NET_AUTOSTART
+	bool "Bring the cellular link up automatically at boot"
+	default y
+
+config APP_NET_CONNECT_TIMEOUT_S
+	int "Max time from modem start to a working IP link [s]"
+	default 180
+	help
+	  Covers modem start-up, network search/registration (first
+	  registration on LTE-M can take minutes), PPP and DNS. After the
+	  timeout the modem is restarted with backoff.
+
+config APP_NET_RECONNECT_GRACE_S
+	int "Time the driver gets to re-establish a lost link before a restart [s]"
+	default 60
+
+config APP_NET_BACKOFF_MIN_S
+	int "First backoff delay before restarting the modem [s]"
+	default 30
+
+config APP_NET_BACKOFF_MAX_S
+	int "Max backoff delay [s] (delay doubles after each failure)"
+	default 900
+
+config APP_NET_STATUS_INTERVAL_S
+	int "Interval for the periodic network status log while connected [s]"
+	default 60
+
+config APP_NET_CHECK_HOST
+	string "Host used for the connectivity check (DNS lookup)"
+	default APP_MQTT_BROKER_HOST
+	help
+	  After PPP is up the host name is resolved with DNS. This proves
+	  that IP and DNS through the operator work.
+
+config APP_NET_CHECK_PORT
+	int "TCP port for the connectivity check (0 = DNS only)"
+	default 80
+	help
+	  A TCP connect to this port of APP_NET_CHECK_HOST proves end-to-end
+	  IP to the own server. 80 = nginx on the Webdock LEMP image. A
+	  failed TCP connect is logged as a warning only (e.g. firewall).
+
+config APP_NET_CMUX_RECOVERY
+	bool "Send a CMUX close-down frame before starting the modem"
+	default y
+	help
+	  The modem keeps its 5 V supply when the ESP32-C6 is reset (e.g. by
+	  flashing) and may still be in CMUX mode. It then does not answer
+	  plain AT commands and the driver's init script fails forever,
+	  because the module has no PWRKEY/RESET pin. A 3GPP TS 27.010 CLD
+	  frame returns it to AT command mode; in AT mode it is ignored.
+
+endmenu
+
+menu "Security (part 8)"
+
+config APP_SECURITY_SAR_ENTROPY
+	bool "Keep the SAR ADC entropy source of the hardware RNG enabled"
+	default y
+	depends on SOC_SERIES_ESP32C6
+	help
+	  Without Wi-Fi/BT/802.15.4 the ESP32-C6 RNG only produces true random
+	  numbers while the SAR ADC noise source is enabled (Espressif "Random
+	  Number Generation"). Zephyr enables it only while loading the image.
+	  The application uses no ADC, so it stays enabled. Cost: the SAR ADC
+	  runs continuously (measured in part 9).
+
+endmenu
+
+menu "Low power (part 9)"
+
+choice APP_UPLINK_MODE
+	prompt "When the cellular link is used"
+	default APP_UPLINK_CONTINUOUS
+	help
+	  The modem is by far the largest consumer (docs/09-strom-data.md).
+	  Measurements are taken every APP_SAMPLE_INTERVAL_MS in both modes.
+
+config APP_UPLINK_CONTINUOUS
+	bool "Continuous: modem and MQTT session always on"
+	help
+	  Data arrives in Node-RED every minute and NCMD commands take effect
+	  at once. The modem stays registered, and the HP core cannot use
+	  light sleep while the modem UART is active (no flow control, a byte
+	  arriving during light sleep would be lost).
+
+config APP_UPLINK_INTERVAL
+	bool "Interval: modem on only for an uplink every APP_UPLINK_INTERVAL_S"
+	help
+	  Batches are kept in RAM. Every APP_UPLINK_INTERVAL_S (or when the
+	  batch queue is 3/4 full) the modem is started, the MQTT/TLS session
+	  is opened, NBIRTH/DBIRTH and all queued DDATA (with their original
+	  timestamps, is_historical) are sent, the node says NDEATH and
+	  disconnects cleanly, and the modem radio is switched off
+	  (AT+CFUN=0). Between uplinks the HP core is in light sleep except for
+	  the short measurements. NCMD is only received during an uplink.
+
+endchoice
+
+config APP_UPLINK_INTERVAL_S
+	int "Interval between uplinks [s]"
+	depends on APP_UPLINK_INTERVAL
+	range 60 3600
+	default 1800
+	help
+	  Trade-off: every uplink costs one full TLS handshake (~5 kB) plus
+	  modem attach time, so very short intervals cost more data than
+	  continuous mode; long intervals delay data and commands.
+
+config APP_UPLINK_LINGER_S
+	int "Stay connected this long after the queue is empty [s]"
+	depends on APP_UPLINK_INTERVAL
+	default 10
+	help
+	  Gives the host application time to send NCMD after it has seen the
+	  NBIRTH (e.g. queued configuration changes).
+
+config APP_UPLINK_TIMEOUT_S
+	int "Give up an uplink after this time without success [s]"
+	depends on APP_UPLINK_INTERVAL
+	default 240
+	help
+	  Covers modem start, registration, PPP, SNTP, TLS and BIRTH. On a
+	  timeout the modem is switched off again and the data stays queued
+	  until the next uplink.
+
+config APP_UPLINK_THREAD_PRIO
+	int "Uplink thread priority"
+	depends on APP_UPLINK_INTERVAL
+	default 9
+
+config APP_UPLINK_THREAD_STACK
+	int "Uplink thread stack size"
+	depends on APP_UPLINK_INTERVAL
+	default 1536
+
+config APP_POWER_LIGHT_SLEEP
+	bool "Allow light sleep of the HP core when no UART transfer can happen"
+	default y
+	depends on PM
+	help
+	  Light sleep is allowed only while the modem is stopped and no
+	  measurement is in progress (power.c sleep locks). In continuous mode
+	  the modem always runs, so light sleep is in practice used only in
+	  interval mode.
+
+config APP_MODEM_RADIO_OFF
+	bool "Switch the modem radio off (AT+CFUN=0) when the link is stopped"
+	default y
+	help
+	  The SIM7080G on the M5Stack unit has no PWRKEY pin, so it cannot be
+	  powered down and up again by the ESP32-C6. Minimum functionality
+	  mode switches off RF and SIM. The driver sets AT+CFUN=1 again when
+	  the modem is resumed.
+
+config APP_MODEM_EDRX
+	string "eDRX value for AT+CEDRXS (4-bit string, empty = eDRX off)"
+	default ""
+	help
+	  Requested extended DRX cycle for LTE-M (3GPP TS 27.007, e.g. "0101"
+	  = 81.92 s). Only useful in continuous mode; the network decides
+	  whether it is granted. Commands from the server are then delayed by
+	  up to one cycle. Empty: AT+CEDRXS=0.
+
+config APP_LPCORE
+	bool "Use the LP core (app/remote): deep-sleep wake-up and supervisor"
+	default y
+	depends on ESP32_ULP_COPROC_ENABLED
+	help
+	  The LP-core image (app/remote) is loaded by Zephyr at boot. power.c
+	  sets up the memory shared with it (app/common/lp_shared.h).
+
+config APP_LPCORE_WATCHDOG_S
+	int "LP-core supervisor: reset the HP core after N s without a processed measurement (0 = off)"
+	depends on APP_LPCORE
+	range 0 3600
+	default 120
+	help
+	  app_logic gives a heartbeat for every processed measurement (every
+	  5-15 s). Must be clearly longer than the sample interval.
+
+config APP_SLEEP_MIN_S
+	int "Shortest deep sleep accepted from NCMD Node Control/Sleep [s]"
+	default 60
+
+config APP_SLEEP_MAX_S
+	int "Longest deep sleep accepted from NCMD Node Control/Sleep [s]"
+	default 86400
+
+endmenu
+
+menu "Time synchronisation (SNTP)"
+
+config APP_TIMESYNC_SERVER1
+	string "First SNTP server (host[:port])"
+	default "pool.ntp.org"
+
+config APP_TIMESYNC_SERVER2
+	string "Second SNTP server, tried if the first fails (empty = none)"
+	default "time.cloudflare.com"
+
+config APP_TIMESYNC_TIMEOUT_MS
+	int "Timeout per SNTP request [ms]"
+	default 4000
+	help
+	  One UDP request/response (96 B in total) over LTE-M. A cold radio
+	  link can need more than one second for the first packet.
+
+config APP_TIMESYNC_RESYNC_H
+	int "Resynchronise every N hours (0 = only at start-up)"
+	default 24
+	help
+	  The ESP32-C6 crystal drifts by a few seconds per day at most, so one
+	  SNTP request per day (96 B) is enough for 1-second timestamps.
+
+endmenu
+
+menu "Cloud / MQTT"
+
+config APP_MQTT_BROKER_HOST
+	string "MQTT broker host name"
+	default "zephyra.vps.webdock.cloud"
+	help
+	  Resolved with DNS and also used for the TLS host name check: the
+	  broker certificate must contain this name (subjectAltName).
+
+config APP_MQTT_BROKER_PORT
+	int "MQTT broker port (TLS)"
+	default 8883
+
+config APP_MQTT_USERNAME
+	string "MQTT user name (empty = device id)"
+	default ""
+	help
+	  Empty: the device id (e.g. esp32c6-14c19fe0ab24) is used. The broker
+	  ACL (cloud/mosquitto/acl) only lets a client publish below its own
+	  user name, so the user name must be the Sparkplug edge node id.
+
+config APP_MQTT_PASSWORD
+	string "MQTT password (set in secrets.conf)"
+	default ""
+	help
+	  Set only in app/secrets.conf (ignored by git). The client refuses to
+	  start without a password: the broker has no anonymous access.
+
+config APP_MQTT_KEEPALIVE_S
+	int "MQTT keep-alive [s]"
+	range 60 3600
+	default 1200
+	help
+	  Long keep-alive = fewer PINGREQ packets = less data and less radio-on
+	  time. Data is published every minute anyway, which also counts as
+	  activity. Mosquitto disconnects a client after 1.5 x keep-alive
+	  without traffic. Tuned in the low-power part.
+
+config APP_MQTT_PINGRESP_TIMEOUT_S
+	int "Max wait for PINGRESP before the connection is considered dead [s]"
+	default 30
+
+config APP_MQTT_CONNACK_TIMEOUT_S
+	int "Max wait for CONNACK after the TLS handshake [s]"
+	default 30
+
+config APP_MQTT_BACKOFF_MIN_S
+	int "First reconnect delay [s]"
+	default 10
+
+config APP_MQTT_BACKOFF_MAX_S
+	int "Max reconnect delay [s] (delay doubles after each failure)"
+	default 600
+	help
+	  Errors that will not go away by themselves (wrong password, ACL,
+	  certificate verification) jump directly to this delay, so a
+	  misconfigured device does not burn data with TLS handshakes.
+
+config APP_MQTT_STABLE_S
+	int "A connection must last this long before the backoff is reset [s]"
+	default 60
+	help
+	  Prevents fast reconnect loops when the broker accepts the
+	  connection but closes it right away (e.g. ACL or duplicate id).
+
+config APP_MQTT_TX_QUEUE_LEN
+	int "Publish queue length (messages)"
+	default 4
+	help
+	  Messages wait here while the link is down. The payload buffer pool
+	  has one block more than the queue (one block is being encoded).
+
+config APP_MQTT_TLS_SEC_TAG_BASE
+	int "First TLS security tag used for the CA certificates"
+	default 100
+	help
+	  Each trusted root CA (app/ca/*.der) gets its own tag, starting here.
+
+endmenu
+
+menu "Threads"
+
+config APP_SENSOR_THREAD_PRIO
+	int "Sensor thread priority"
+	default 4
+
+config APP_SENSOR_THREAD_STACK
+	int "Sensor thread stack size"
+	default 1536
+
+config APP_NETWORK_THREAD_PRIO
+	int "Network thread priority"
+	default 5
+
+config APP_NETWORK_THREAD_STACK
+	int "Network thread stack size"
+	default 2048
+
+config APP_MQTT_THREAD_PRIO
+	int "MQTT thread priority"
+	default 6
+
+config APP_MQTT_THREAD_STACK
+	int "MQTT thread stack size"
+	default 8192
+	help
+	  The TLS handshake (Mbed TLS: certificate chain verification with
+	  ECDSA P-384 / RSA-4096, ECDHE) runs in this thread. The thread logs
+	  its peak stack use after the first connect (part 6 measurement).
+
+config APP_LOGIC_THREAD_PRIO
+	int "App logic thread priority"
+	default 7
+
+config APP_LOGIC_THREAD_STACK
+	int "App logic thread stack size"
+	default 1536
+
+config APP_SPARKPLUG_THREAD_PRIO
+	int "Sparkplug thread priority"
+	default 8
+
+config APP_SPARKPLUG_THREAD_STACK
+	int "Sparkplug thread stack size"
+	default 4096
+	help
+	  nanopb encoding (one Metric struct of 148 B at a time, callbacks) and
+	  the index list of a batch (up to 48 values).
+
+endmenu
+
+endmenu
+
+source "Kconfig.zephyr"

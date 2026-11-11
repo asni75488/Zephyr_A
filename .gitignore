@@ -1,0 +1,51 @@
+# --- Build output ---------------------------------------------------------
+build/
+build-*/
+twister-out*/
+
+# --- Python / tools -------------------------------------------------------
+.venv/
+__pycache__/
+*.pyc
+
+# --- Editors / OS ---------------------------------------------------------
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# --- SECRETS: never commit -----------------------------------------------
+# Real values live in local files; only *.example templates are committed.
+secrets.conf
+**/secrets.conf
+*.secret
+.env
+.env.*
+!.env.example
+
+# Certificates and keys (TLS / MQTT / MCUboot signing keys)
+certs/*
+!certs/README.md
+!certs/*.example
+*.key
+*.pem
+*.p12
+*.pfx
+*.der
+*.crt
+!**/*.example.crt
+
+# Server-side secrets (cloud/)
+cloud/**/passwd
+cloud/**/*.passwd
+cloud/**/acl.local
+
+# Node.js (cloud/tools, Node-RED tests)
+node_modules/
+package-lock.json
+
+# Public root CA certificates embedded in the firmware (not secret)
+!app/ca/*.der
