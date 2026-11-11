@@ -158,6 +158,14 @@ config APP_SPARKPLUG_STATUS_INTERVAL_S
 	help
 	  About 60 B every 15 minutes. The same metrics are always in NBIRTH.
 
+config APP_SPARKPLUG_REBOOT_MIN_UPTIME_S
+	int "Reject NCMD Node Control/Reboot during the first N s after boot"
+	default 60
+	help
+	  Reboot-loop protection: a faulty or compromised host application that
+	  repeats the reboot command cannot keep the device from ever working
+	  (availability, IEC 62443-4-2 CR 7.1). 0 = no limit.
+
 config APP_SPARKPLUG_DEVICE_ID
 	string "Sparkplug device id for the on-board sensors"
 	default "sensors"
@@ -218,6 +226,21 @@ config APP_NET_CMUX_RECOVERY
 	  plain AT commands and the driver's init script fails forever,
 	  because the module has no PWRKEY/RESET pin. A 3GPP TS 27.010 CLD
 	  frame returns it to AT command mode; in AT mode it is ignored.
+
+endmenu
+
+menu "Security (part 8)"
+
+config APP_SECURITY_SAR_ENTROPY
+	bool "Keep the SAR ADC entropy source of the hardware RNG enabled"
+	default y
+	depends on SOC_SERIES_ESP32C6
+	help
+	  Without Wi-Fi/BT/802.15.4 the ESP32-C6 RNG only produces true random
+	  numbers while the SAR ADC noise source is enabled (Espressif "Random
+	  Number Generation"). Zephyr enables it only while loading the image.
+	  The application uses no ADC, so it stays enabled. Cost: the SAR ADC
+	  runs continuously (measured in part 9).
 
 endmenu
 

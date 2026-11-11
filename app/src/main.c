@@ -26,6 +26,7 @@
 #include "power.h"
 #include "sensor.h"
 #include "sparkplug.h"
+#include "security.h"
 #include "timesync.h"
 
 LOG_MODULE_REGISTER(app_main, CONFIG_APP_LOG_LEVEL);
@@ -41,6 +42,7 @@ struct module {
  */
 static const struct module modules[] = {
 	{"power", app_power_init, NULL},
+	{"security", app_security_init, NULL}, /* RNG entropy before any TLS */
 	{"timesync", timesync_init, NULL},
 	{"app_logic", app_logic_init, app_logic_start},
 	{"sparkplug", sparkplug_init, sparkplug_start},
