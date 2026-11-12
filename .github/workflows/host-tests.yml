@@ -75,6 +75,10 @@ jobs:
           west init -l zephyr_a
           west update --narrow -o=--depth=1
           west zephyr-export
+          # As in Zephyr's own twister.yaml: the SDK in the image is registered
+          # for the image user, not for root, so point CMake to it.
+          ls -d /opt/toolchains/zephyr-sdk-*
+          echo "ZEPHYR_SDK_INSTALL_DIR=/opt/toolchains/zephyr-sdk-$(cat zephyr/SDK_VERSION)" >> "$GITHUB_ENV"
 
       - name: Mosquitto and hosts entry
         run: |
