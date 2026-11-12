@@ -1,0 +1,32 @@
+{
+  // OPTIONAL alternative to the native Windows 11 setup (scripts/setup.ps1).
+  // Image: Zephyr's official build image. Tag v0.29.1 is the docker-image
+  // release used by Zephyr v4.4.0's own CI (.github/workflows/twister.yaml),
+  // so it ships the matching Zephyr SDK.
+  // Flashing is done from Windows (see docs/01-opsaetning-windows.md).
+  "name": "Zephyr_A (Zephyr 4.4.0)",
+  "image": "ghcr.io/zephyrproject-rtos/zephyr-build:v0.29.1",
+
+  // West workspace = /workdir/zp. The repository is bind-mounted into it as
+  // the manifest repository; zephyr/ and modules/ live in a named volume so
+  // they survive container rebuilds and are fast on Windows.
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workdir/zp/zephyr_a,type=bind",
+  "workspaceFolder": "/workdir/zp/zephyr_a",
+  "mounts": [
+    "source=zephyr_a-west-workspace,target=/workdir/zp,type=volume"
+  ],
+
+  "remoteUser": "user",
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-vscode.cpptools",
+        "ms-vscode.cmake-tools",
+        "nordic-semiconductor.nrf-devicetree",
+        "nordic-semiconductor.nrf-kconfig"
+      ]
+    }
+  }
+}

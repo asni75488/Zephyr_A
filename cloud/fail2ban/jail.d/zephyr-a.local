@@ -1,0 +1,34 @@
+# Zephyr_A - fail2ban jails (part 10, docs/10-nice-to-have.md)
+# Installed to /etc/fail2ban/jail.d/zephyr-a.local by cloud/scripts/70-fail2ban.sh
+# (@IGNORE_IP@ is replaced by the script).
+#
+# Bans go into UFW (the firewall from 20-firewall.sh). The ban time grows
+# for repeat offenders (bantime.increment) up to one week.
+
+[DEFAULT]
+banaction = ufw
+# 127.0.0.1: Node-RED on the same server. Add the public egress addresses of
+# the cellular operator if devices share them (CGNAT), see the docs.
+ignoreip = 127.0.0.1/8 ::1 @IGNORE_IP@
+bantime = 1h
+bantime.increment = true
+bantime.maxtime = 1w
+findtime = 10m
+
+# MQTT over TLS (8883 password, 8884 client certificate). A device with a
+# wrong password backs off 10-600 s (mqtt_client.c), i.e. at most ~6 tries
+# per hour - far below 10 in 10 minutes, so devices are never banned.
+[zephyr-a-mosquitto]
+enabled = true
+filter = zephyr-a-mosquitto
+logpath = /var/log/mosquitto/mosquitto.log
+backend = auto
+port = 8883,8884
+maxretry = 10
+
+# SSH (key only, 10-base.sh) - still banned on repeated attempts to save log
+# noise and CPU.
+[sshd]
+enabled = true
+backend = systemd
+maxretry = 5

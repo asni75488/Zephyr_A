@@ -1,0 +1,19 @@
+2026-11-12T10:00:00: mosquitto version 2.0.18 running
+2026-11-12T10:00:01: New connection from 203.0.113.7:51234 on port 8883.
+2026-11-12T10:00:01: Client esp32c6-x disconnected, not authorised.
+2026-11-12T10:00:02: New connection from 203.0.113.7:51235 on port 8883.
+2026-11-12T10:00:02: Client admin disconnected, not authorised.
+2026-11-12T10:00:03: New connection from 198.51.100.9:40000 on port 8884.
+2026-11-12T10:00:03: OpenSSL Error[0]: error:0A0000C7:SSL routines::peer did not return a certificate
+2026-11-12T10:00:04: New connection from 198.51.100.9:40001 on port 8883.
+2026-11-12T10:00:04: OpenSSL Error[0]: error:0A000418:SSL routines::tlsv1 alert unknown ca
+2026-11-12T10:00:05: New connection from 192.0.2.50:33333 on port 8883.
+2026-11-12T10:00:05: OpenSSL Error[0]: error:0A000126:SSL routines::unexpected eof while reading
+2026-11-12T10:00:06: New connection from 192.0.2.50:33334 on port 8883.
+2026-11-12T10:00:06: New client connected from 192.0.2.50:33334 as esp32c6-14c19fe0ab24 (p2, c1, k1200, u'esp32c6-14c19fe0ab24').
+2026-11-12T10:00:07: New connection from 198.51.100.10:1111 on port 8883.
+2026-11-12T10:00:07: Client <unknown> disconnected: Protocol error.
+2026-11-12T10:00:08: New connection from 198.51.100.11:1112 on port 8883.
+2026-11-12T10:00:08: OpenSSL Error[0]: error:0A00009C:SSL routines::http request
+2026-11-12T10:00:09: New connection from 127.0.0.1:2222 on port 1883.
+2026-11-12T10:00:09: Client nodered disconnected, not authorised.
