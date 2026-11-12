@@ -21,6 +21,7 @@ cd C:\zp\zephyr_a
 .\scripts\setup.ps1                  # værktøjer, venv, west, Zephyr 4.4.0, SDK, blobs
 .\scripts\new-signing-key.ps1        # én gang: egen MCUboot-signeringsnøgle (certs\, ikke i git)
 .\scripts\build.ps1                  # sysbuild: MCUboot + signeret app + LP-kerne (-LowPower: docs/09, -Release/-Sbom: docs/08)
+.\scripts\new-device-cert.ps1 -DeviceId <id>   # valgfrit: klientcertifikat (mTLS), derefter build.ps1 -Mtls (docs/10)
 .\scripts\flash.ps1   -Port COM5     # "UART"-USB-porten på boardet
 .\scripts\monitor.ps1 -Port COM5     # log (afslut: Ctrl+T og derefter X)
 ```

@@ -74,7 +74,7 @@ Topics: `spBv1.0/ProjektA/<type>/esp32c6-14c19fe0ab24[/sensors]`.
 | `Node Control/Rebirth` | 1 | Boolean | NBIRTH, **NCMD** | `true` → ny NBIRTH + DBIRTH |
 | `Node Control/Reboot` | 2 | Boolean | NBIRTH, **NCMD** | `true` → NDEATH, derefter reboot efter 2 s |
 | `Properties/FW Version` | 3 | String | NBIRTH | fx `0.7.0-del07` |
-| `Properties/Reset Cause` | 4 | String | NBIRTH | fx `power-on`, `brownout`, `watchdog`, `low-power wake`, `lp-core supervisor` (Del 9) |
+| `Properties/Reset Cause` | 4 | String | NBIRTH | fx `power-on`, `brownout`, `watchdog`, `low-power wake`, `lp-core supervisor` (Del 9), `task watchdog (<tråd>)` (Del 10) |
 | `Config/Sample Interval` | 5 | Int64 (ms) | NBIRTH, NDATA, **NCMD** | 5000–15000 |
 | `Config/Batch Size` | 6 | Int64 | NBIRTH, NDATA, **NCMD** | 1–12 |
 | `Status/RSSI` | 7 | Int32 (dBm) | NBIRTH, NDATA | Signalstyrke |

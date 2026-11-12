@@ -45,6 +45,7 @@ Sparkplug B `DDATA`-besked over MQTT/TLS via LTE-M til egen broker på Webdock-s
 | `network.c/.h` | Cellulær forbindelse: modem power, registrering, PPP, tilstandsmaskine | `network` | `modem_cellular`, `pm_device`, `net_mgmt`, `conn_mgr`, `k_event` |
 | `security.c/.h` | Del 8: sikkerhedsstatus fra eFuses (secure boot, flash encryption, JTAG, download mode), SAR ADC-entropi til RNG'en. Status logges og sendes i NBIRTH (`Properties/Security`) | ingen (bibliotek, init i `main`) | `esp_efuse`, `efuse_hal`, `soc_random` |
 | `power.c/.h` | Sleep-politik: lås/tillad light sleep, LP-kernens delte hukommelse (heartbeat, supervisor), deep sleep med LP-vækning, tjek af LP-billedet (Del 9) | ingen (bibliotek) | `pm`, `pm_policy_state_lock`, `sys_poweroff`, ULP, PSA SHA-256 |
+| `health.c/.h` | Del 10: task watchdog for alle tråde (kanal pr. tråd, pause under lovlige ventetider), hardware-fallback `wdt0`, rapport af tråden der hang | ingen (bibliotek, kaldes fra trådene) | `task_wdt`, `watchdog` |
 | `uplink.c/.h` | Del 9: interval-uplink (modem kun tændt under en uplink, NDEATH + ren DISCONNECT) | `uplink` (kun interval-tilstand) | `k_event` |
 | `app_types.h` | Fælles datatyper (`struct measurement`, `channel_value`, `measurement_batch`, `app_cmd`, `app_config`) | – | – |
 

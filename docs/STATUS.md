@@ -12,11 +12,42 @@ Opdateres i slutningen af hver del. Detaljeret kravstatus: [02-kravmatrix.md](02
 | 6 | MQTT + TLS (Mbed TLS 4.1/PSA) | `del-06-mqtt-tls` | Færdig – testet på native_sim, **ikke på hardware endnu** |
 | 7 | Sparkplug B + tidssynkronisering | `del-07-sparkplug` | Færdig – testet på native_sim, **ikke på hardware endnu** (bruger gik videre til Del 8) |
 | 8 | Sikkerhed: IEC 62443-4-2 / CRA, signeret firmware | `del-08-sikkerhed` | Færdig – testet på native_sim og med `imgtool`, **ikke på hardware endnu** (bruger gik videre til Del 9) |
-| 9 | Lavt strøm- og dataforbrug, LP-kerne (`remote/`) | `del-09-strom` | Færdig – testet på native_sim (91/91 + LP-unittest 7/7), afventer hardwaretest, strømmåling og godkendelse |
-| 10 | Nice to have (dashboard, mTLS, OTA, fail2ban, task watchdog, TLS-genoptagelse) | – | Ikke startet |
+| 9 | Lavt strøm- og dataforbrug, LP-kerne (`remote/`) | `del-09-strom` | Færdig – testet på native_sim (91/91 + LP-unittest 7/7), **ikke på hardware/strømmålt endnu** (bruger gik videre til Del 10) |
+| 10 | Nice to have: task watchdog, fail2ban, mTLS, dashboard (OTA udskudt) | `del-10-nice` | Færdig – testet på native_sim (105/105 + health 5/5), afventer VPS/hardwaretest og godkendelse |
 | 11 | Afslutning: test, memory layout, rapportmateriale | – | Ikke startet |
 
 Delene blev omnummereret i Del 3 (dataopsamling før netværk).
+
+## Del 10 – lavet
+
+Scope valgt sammen med brugeren: task watchdog + fail2ban, mTLS (N-04), dashboard (N-03). **OTA (N-02) er udskudt.**
+
+- **Task watchdog** (`health.c`): kanal pr. tråd (6), overvåger kun den tid, en tråd arbejder (pause under lovlige
+  ventetider), 180 s. Hardware-fallback `wdt0` (15 s). Tråden, der hang, gemmes i LP-SRAM og vises i NBIRTH
+  (`Reset Cause = task watchdog (<tråd>)`)
+- **fail2ban** (`cloud/fail2ban/`, `70-fail2ban.sh`): to-linjers filter til Mosquitto 2.0 (IP + årsag), 10 fejl / 10 min →
+  spærring i UFW (1 t, stigende). `unexpected eof` (tabt dækning) tæller ikke. `IGNORE_IP` til operatørens NAT
+- **mTLS:** `scripts/device_pki.py` (device-CA på pc'en, certifikat pr. enhed, CRL), `new-device-cert.ps1`,
+  `build.ps1 -Mtls`, Mosquitto-listener 8884 (`65-mtls.sh`, `--crl`, `--close-8883`). Firmware: ingen password,
+  CN-tjek mod enheds-id, `SECURITY:`-log når brokeren afviser certifikatet. `90-verify.sh` tjekker 8884, CRL og fail2ban
+- **Dashboard:** tabel pr. edge node + knapper/sliders (Rebirth, Reboot, Deep sleep, interval, batch) gennem samme
+  NCMD-encoder (kø til offline noder). Nye function-filer `overview.js`, `dashcmd.js` med unittests og `flows.test.js`
+- `docs/10-nice-to-have.md`. VERSION 0.10.0-del10
+
+### Verificeret
+
+- native_sim mod Mosquitto 2.0.18: **105/105** (14 nye i scenarie 14, mTLS). Ingen falsk watchdog-alarm
+- `app/tests/health` (ztest): **5/5**. `app/tests/lp_supervisor`: 7/7
+- mTLS-handshake målt: +0,57 kB op / +0,93 kB ned
+- fail2ban-filter med `fail2ban-regex` 1.1.0: 7 fejl / 5 adresser, ingen falske
+- `device_pki.py` krydstjekket med `openssl verify` (kæde OK, spærret certifikat afvist)
+- ESP32-C6: standard FLASH 10,46 % / RAM 41,52 %, mTLS +1,2 kB, ingen nye warnings
+- Node-RED-tests (`overview`, `dashcmd`, `ncmd`, `decode`, `flows`), ShellCheck, PowerShell-parser
+
+### Mangler (VPS/hardware)
+
+- [ ] Del 10-tjeklisten i `10-nice-to-have.md` §7 (hæng-test, fail2ban på VPS'en, mTLS på VPS + board, dashboard-import)
+- [ ] Del 3–9 på hardware/VPS
 
 ## Del 9 – lavet
 

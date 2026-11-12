@@ -62,7 +62,7 @@ flowchart LR
 | Trussel | Eksempel | Modforanstaltning | Rest-risiko |
 |---|---|---|---|
 | **S**poofing af broker | Falsk server/DNS på mobilnettet (MITM) | TLS: kæde mod egne ISRG-rødder + værtsnavn + datoer (testet: forkert CA, forkert navn, udløbet → afvist) | Fejludstedt Let's Encrypt-certifikat til domænet (lav) |
-| **S**poofing af enhed | Andre publicerer data i enhedens navn | Password pr. enhed (≥ 12 tegn, hashet på serveren), ACL `pattern … %u` | Password kan læses fra flash ved fysisk adgang (§7) |
+| **S**poofing af enhed | Andre publicerer data i enhedens navn | Password pr. enhed (≥ 12 tegn, hashet på serveren), ACL `pattern … %u`. **Del 10:** klientcertifikat (mTLS, CN = enheds-id), spærring via CRL | Nøgle/password kan læses fra flash ved fysisk adgang (§7), men en enkelt enhed kan spærres |
 | **T**ampering med data/kommandoer | Ændring under transport | TLS AEAD (integritet pr. record), MQTT over TLS | – |
 | **T**ampering med firmware | Fremmed eller ændret image flashes via USB | **MCUboot ECDSA P-256** ved hver boot (Del 8) | MCUboot selv er ikke verificeret af ROM (kræver eFuse secure boot, §7) |
 | **R**epudiation | Hvem sendte en NCMD? | Mosquitto logger forbindelser (bruger, IP). NCMD kun fra brugeren `nodered` | Node-RED logger ikke, hvilken operatør der klikkede (én konto) |
@@ -98,11 +98,11 @@ requirement). ✅ implementeret og testet · 🟡 delvist · ⬜ mangler · ➖ 
 | Krav | Hvordan | Dokumentation / test | Status |
 |---|---|---|---|
 | **CR 1.1** Identifikation og autentifikation af personer | Ingen brugerinterface på enheden. Server: SSH kun med nøgle, Node-RED-login (bcrypt) | `05-cloud.md` §3, `90-verify.sh` | ✅ |
-| **CR 1.2** Identifikation og autentifikation af software/enheder | Enhed → broker: unikt brugernavn (= enheds-id) + password. Broker → enhed: X.509-certifikat | native_sim: forkert password → `CONNACK 5`. Forkert CA/navn → afvist | ✅ |
-| **CR 1.5** Håndtering af authenticators | Ingen standardpassword: firmwaren starter ikke MQTT uden `secrets.conf`. Hashet på serveren. Aldrig i git | `secrets.conf.example`, `.gitignore`, Del 6 negativ test | ✅ |
+| **CR 1.2** Identifikation og autentifikation af software/enheder | Enhed → broker: unikt brugernavn (= enheds-id) + password, **eller (Del 10) klientcertifikat fra egen device-CA (mTLS, port 8884)**. Broker → enhed: X.509-certifikat | native_sim: forkert password → `CONNACK 5`. Forkert CA/navn → afvist. mTLS: spærret certifikat og enhed uden certifikat afvist (`10-nice-to-have.md` §5) | ✅ |
+| **CR 1.5** Håndtering af authenticators | Ingen standardpassword: firmwaren starter ikke MQTT uden `secrets.conf` eller klientcertifikat. Hashet på serveren. Aldrig i git. Del 10: certifikater udløber (5 år), kan spærres, og serveren gemmer ingen enhedshemmeligheder | `secrets.conf.example`, `.gitignore`, Del 6 negativ test, `device_pki.py` | ✅ |
 | **CR 1.7** Styrke af password-autentifikation | Min. 12 tegn ved oprettelse (`60-add-device.sh`) | `common.sh` `read_password` | ✅ |
 | **CR 1.8/1.9** PKI og offentlig-nøgle-autentifikation | Let's Encrypt (auto-fornyelse). Kæde, signaturer, værtsnavn og **datoer** tjekkes. Kun 4 rødder | native_sim scenarie 4, 5, 9 | ✅ |
-| **CR 1.11** Fejlede loginforsøg | Mosquitto har ingen lås. Enheden selv: permanente fejl → 600 s backoff | – | 🟡 (fail2ban, Del 10) |
+| **CR 1.11** Fejlede loginforsøg | **Del 10:** fail2ban spærrer IP'en i UFW efter 10 fejlede logins/afviste TLS-handshakes på 10 min (MQTT) eller 5 (SSH). Enheden selv: permanente fejl → 600 s backoff | `cloud/fail2ban/`, `fail2ban-regex`-test | ✅ |
 | **CR 2.1** Autorisation | Mosquitto-ACL: enheder kun egne topics. NCMD kun fra `nodered` | Del 5 ACL-test | ✅ |
 | **CR 2.8** Sporbare hændelser | Enhed: `SECURITY:`-logs (TLS-fejl, CONNACK-afvisning, afviste/ukendte kommandoer, reboot, urimelig tid, sikkerhedsstatus). Broker: connect/disconnect | native_sim scenarie 11 | ✅ |
 | **CR 2.9/3.9** Lagring og beskyttelse af auditlog | Enhedens log går kun ud over USB (ingen lagring). Brokerens log i journald | – | 🟡 |
@@ -124,7 +124,7 @@ requirement). ✅ implementeret og testet · 🟡 delvist · ⬜ mangler · ➖ 
 | **CR 6.2** Kontinuerlig overvågning | NDEATH (Will) ved tab, `Status/*` hvert 15. min, `Status/MQTT Connects` | Del 7 | 🟡 |
 | **CR 7.1** DoS-beskyttelse | Reboot-spærring, backoff med jitter, faste køer, permanente fejl → maks. backoff | native_sim scenarie 1b | ✅ |
 | **CR 7.2** Ressourcestyring | Statisk allokering, afgrænsede køer, målt heap og stack | Del 6/7 | ✅ |
-| **CR 7.4** Gendannelse | Genforbindelse automatisk. **Del 9:** LP-kernen nulstiller HP-kernen, hvis målekæden står stille i 120 s (`09-strom-data.md` §3). Task watchdog for alle tråde mangler | Del 9 unittest 7/7, Del 10 | 🟡 |
+| **CR 7.4** Gendannelse | Genforbindelse automatisk. **Del 9:** LP-kernen nulstiller HP-kernen, hvis målekæden står stille i 120 s (`09-strom-data.md` §3). **Del 10:** task watchdog for alle seks tråde + hardware-watchdog `wdt0`. Den tråd, der hang, rapporteres i NBIRTH | Del 9 unittest 7/7, Del 10 `tests/health` 5/5 | ✅ |
 | **CR 7.7** Mindst mulig funktionalitet | Ingen shell. Release-variant. Kun nødvendige porte. Ingen Wi-Fi/BT | `overlay-release.conf`, `20-firewall.sh` | ✅ |
 | **CR 7.8** Komponentinventar | `Properties/FW Version` + `Properties/Security` i NBIRTH. SBOM (SPDX) | `-Sbom` | ✅ |
 
@@ -256,9 +256,9 @@ RAM. Efter hærdning viser loggen `SECURITY: hardened device (sb=1 fe=1 jtag=0 �
 | SAR ADC-entropi kører hele tiden | Lidt ekstra strømforbrug | Måles i Del 9 (evt. kun tændt omkring TLS-handshakes) |
 | SNTP uautentificeret | Se §2 | Accepteret (NTS findes ikke i Zephyr 4.4) |
 | LP-billedet (Del 9) er ikke dækket af MCUboots signatur | HP-billedet tjekker LP-billedets SHA-256 ved boot og stopper LP-kernen ved afvigelse, men LP-kernen har kørt < 1 s | Secure boot (§7) |
-| Mosquitto uden låsning efter fejlede logins | Password-gætning mod 8883 er mulig (12+ tegn gør det upraktisk) | fail2ban på serveren (Del 10) |
-| Én fælles Node-RED-konto | Kan ikke se, hvem der sendte en kommando | Flere brugere i `adminAuth` (Del 10) |
-| Ingen task watchdog | Del 9: LP-kernen overvåger målekæden. En hængende `mqtt`-tråd opdages ikke | Del 10 |
+| ~~Mosquitto uden låsning efter fejlede logins~~ | Løst i Del 10 (fail2ban). Med mTLS og lukket 8883 kan der ikke gættes | – |
+| Én fælles Node-RED-konto (editor og dashboard) | Kan ikke se, hvem der sendte en kommando | Flere brugere/roller (efter projektet) |
+| ~~Ingen task watchdog~~ | Løst i Del 10 (`health.c`) | – |
 | `Properties/Security` er en selvrapportering | En kompromitteret firmware kan lyve | Med secure boot er firmwaren selv verificeret |
 
 ## 9. Definition of done
