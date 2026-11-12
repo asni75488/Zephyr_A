@@ -43,6 +43,7 @@ target_sources(app PRIVATE
     ${ZEPHYR_A_APP}/src/timesync.c
     ${ZEPHYR_A_APP}/src/security.c
     ${ZEPHYR_A_APP}/src/power.c
+    ${ZEPHYR_A_APP}/src/health.c
     ${ZEPHYR_A_APP}/src/uplink.c
     ${ZEPHYR_A_APP}/src/proto/sparkplug_b.pb.c
 )
@@ -51,3 +52,10 @@ zephyr_include_directories(${ZEPHYR_A_APP}/config)
 
 include(${ZEPHYR_A_APP}/cmake/ca_certs.cmake)
 zephyr_a_add_ca_certs(app ${TEST_CA_DER})
+
+# mTLS build (run.sh scenario 14): -DCONFIG_APP_MQTT_MTLS=y + file paths
+if(CONFIG_APP_MQTT_MTLS)
+  include(${ZEPHYR_A_APP}/cmake/client_cert.cmake)
+  zephyr_a_add_client_cert(app ${CONFIG_APP_MQTT_CLIENT_CERT_FILE}
+                               ${CONFIG_APP_MQTT_CLIENT_KEY_FILE})
+endif()

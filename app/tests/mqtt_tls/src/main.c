@@ -30,6 +30,7 @@
 #include "app_logic.h"
 #include "mqtt_client.h"
 #include "network.h"
+#include "health.h"
 #include "power.h"
 #include "security.h"
 #include "sparkplug.h"
@@ -85,6 +86,7 @@ int main(void)
 	int ret;
 
 	(void)app_power_init();
+	(void)health_init(); /* task watchdog: no false alarms in any scenario */
 	(void)app_security_init();
 	(void)timesync_init();
 	(void)app_logic_init();

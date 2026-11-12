@@ -36,6 +36,9 @@ PKI=$W/pki
 BUILD=$W/build
 EXE=$BUILD/zephyr/zephyr.exe
 BUILDI=$W/build-interval
+BUILDM=$W/build-mtls
+BUILDO=$W/build-mtls-other
+DEVPKI=$W/devpki
 EXE_CONT=$EXE
 EXE_INT=$BUILDI/zephyr/zephyr.exe
 PASS=0
@@ -63,6 +66,19 @@ echo "== Build interval-uplink variant (part 9, prj-interval.conf)"
     -DCONFIG_APP_MQTT_CONNACK_TIMEOUT_S=5 "-DEXTRA_CONF_FILE=$HERE/prj-interval.conf" \
     >"$W/build-interval.log" 2>&1) || { tail -30 "$W/build-interval.log"; exit 1; }
 if grep -E "warning:" "$W/build-interval.log"; then echo "Compiler warnings"; exit 1; fi
+echo "== Device PKI (scripts/device_pki.py) + mTLS builds (part 10)"
+DPKI="python3 $HERE/../../../scripts/device_pki.py --dir $DEVPKI"
+$DPKI init >/dev/null && $DPKI issue esp32c6-test0001 >/dev/null && $DPKI issue esp32c6-other >/dev/null
+for v in test0001 other; do
+    if [ $v = test0001 ]; then BD=$BUILDM; else BD=$BUILDO; fi
+    (cd "$WS" && west build -p always -b native_sim/native/64 "$HERE" -d "$BD" -- \
+        "-DTEST_CA_DER=$PKI/ecdsa-root.der;$HERE/../../ca/isrg-root-yr.der;$HERE/../../ca/isrg-root-x2.der;$PKI/rsa-root.der" \
+        -DCONFIG_APP_MQTT_CONNACK_TIMEOUT_S=5 -DCONFIG_APP_MQTT_MTLS=y \
+        "-DCONFIG_APP_MQTT_CLIENT_CERT_FILE=\"$DEVPKI/devices/esp32c6-$v.crt.der\"" \
+        "-DCONFIG_APP_MQTT_CLIENT_KEY_FILE=\"$DEVPKI/devices/esp32c6-$v.key.der\"" \
+        >"$W/build-mtls-$v.log" 2>&1) || { tail -30 "$W/build-mtls-$v.log"; exit 1; }
+    if grep -E "warning:" "$W/build-mtls-$v.log"; then echo "Compiler warnings"; exit 1; fi
+done
 
 echo "== Broker users (ACL from cloud/mosquitto/acl)"
 : >"$W/passwd"
@@ -94,6 +110,21 @@ certfile $PKI/$1-fullchain.pem
 keyfile $PKI/$1-leaf.key
 tls_version tlsv1.2
 EOF
+    if [ -n "${CERT_ON_8883:-}" ]; then # part 10: password listener now needs a certificate
+        printf 'cafile %s\nrequire_certificate true\nuse_identity_as_username true\n' "$DEVPKI/ca.crt"
+    fi
+    if [ -n "${MTLS:-}" ]; then # part 10: like cloud/mosquitto/zephyr_a_mtls.conf
+        cat <<EOF
+listener ${MTLS_PORT:-8884}
+certfile $PKI/$1-fullchain.pem
+keyfile $PKI/$1-leaf.key
+tls_version tlsv1.2
+cafile $DEVPKI/ca.crt
+crlfile $DEVPKI/crl.pem
+require_certificate true
+use_identity_as_username true
+EOF
+    fi
 }
 
 start_broker() { # <chain> [plain]
@@ -372,6 +403,60 @@ kill "$SNTP" 2>/dev/null || true
 echo "  continuous (1 session, 33 s, 11 DDATA):"; sed 's/^/    /' "$W/bytes-cont.txt" 2>/dev/null || true
 echo "  interval (one line per uplink):"; sed 's/^/    /' "$W/bytes-int.txt" 2>/dev/null || true
 check "Byte counts recorded" "^conn 1 up [0-9]+ down [0-9]+" "$W/bytes-int.txt"
+
+echo "== 14. mTLS (part 10): client certificate instead of password"
+python3 "$HERE/sntp_server.py" 1123 &
+SNTP=$!
+MTLS=1 MTLS_PORT=18884 start_broker ecdsa
+python3 "$HERE/byteproxy.py" 8884 18884 "$W/bytes-mtls.txt" &
+PROXY=$!
+"$SUB" -h 127.0.0.1 -p 1883 -u nodered -P nodered-pass-123 -t 'spBv1.0/#' -v -F '%t %x' >"$W/sub.log" 2>&1 &
+SUBPID=$!
+sleep 0.5
+EXE=$BUILDM/zephyr/zephyr.exe
+run_device 12
+sleep 1
+kill $SUBPID $PROXY 2>/dev/null || true
+wait $PROXY 2>/dev/null || true
+save_log mtls
+check "Client certificate registered" "Client certificate [0-9]+ B \\+ key"
+check "CN matches the device id" "mTLS: client certificate CN=esp32c6-test0001, port 8884"
+check "Connected with the certificate" "MQTT connected \\(CONNACK"
+check "Broker took the user name from the certificate CN" "as esp32c6-test0001 .*u'esp32c6-test0001'" "$W/broker.log"
+check "ACL by CN: NBIRTH delivered" "spBv1.0/ProjektA/NBIRTH/esp32c6-test0001 " "$W/sub.log"
+check "Data delivered" "spBv1.0/ProjektA/DDATA/esp32c6-test0001/" "$W/sub.log"
+check_not "No errors logged" "<err>"
+echo "  mTLS session bytes:"; sed 's/^/    /' "$W/bytes-mtls.txt" 2>/dev/null || true
+stop_broker
+
+echo "  -- revoked certificate"
+$DPKI revoke esp32c6-test0001 >/dev/null
+MTLS=1 start_broker ecdsa
+run_device 6
+save_log mtls-revoked
+check "Revoked certificate refused by the broker (CRL)" "certificate verify failed|certificate revoked" "$W/broker.log"
+check "Refusal logged as security event" "SECURITY: broker closed the connection after the TLS handshake.*refused"
+check_not "No session with a revoked certificate" "MQTT connected \\(CONNACK"
+stop_broker
+
+echo "  -- certificate of another device"
+EXE=$BUILDO/zephyr/zephyr.exe
+MTLS=1 start_broker ecdsa
+run_device 4
+save_log mtls-other
+check "Wrong certificate detected before connecting" "SECURITY: client certificate is for 'esp32c6-other', this device is 'esp32c6-test0001'"
+check_not "No connection attempt" "New connection from" "$W/broker.log"
+stop_broker
+
+echo "  -- password device when the listener requires a certificate"
+EXE=$EXE_CONT
+CERT_ON_8883=1 start_broker ecdsa
+run_device 6
+save_log mtls-nocert
+check "Device without certificate refused" "peer did not return a certificate|certificate required" "$W/broker.log"
+check "Refusal logged as security event" "SECURITY: broker closed the connection after the TLS handshake.*required"
+stop_broker
+kill "$SNTP" 2>/dev/null || true
 
 echo "== 11. No secrets in any device log"
 if grep -l "test-password-123" "$W"/dev-*.log >/dev/null 2>&1; then
