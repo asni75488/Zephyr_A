@@ -48,6 +48,7 @@
 
 #include "device_info.h"
 #include "mqtt_client.h"
+#include "health.h"
 #include "network.h"
 #include "sparkplug.h"
 #include "tls_ca.h"
@@ -433,7 +434,10 @@ static void client_setup(void)
 	password.utf8 = (const uint8_t *)CONFIG_APP_MQTT_PASSWORD;
 	password.size = strlen(CONFIG_APP_MQTT_PASSWORD);
 	client.user_name = &user_name;
-	client.password = &password;
+	/* mTLS (part 10): the certificate is the credential, the broker takes
+	 * the user name from its CN (use_identity_as_username).
+	 */
+	client.password = IS_ENABLED(CONFIG_APP_MQTT_MTLS) ? NULL : &password;
 	client.protocol_version = MQTT_VERSION_3_1_1;
 	client.keepalive = CONFIG_APP_MQTT_KEEPALIVE_S;
 	client.clean_session = 1U;
@@ -479,7 +483,14 @@ static int wait_connack(void)
 			break; /* a refused CONNACK also closes the socket (ret < 0) */
 		}
 		if ((ret != 0) || disconnected) {
-			LOG_ERR("Connection closed before CONNACK (%d)", ret);
+			/* TLS 1.3: the server checks the client certificate after
+			 * the client has finished the handshake, so a refused
+			 * certificate shows up here as a fatal alert (part 10).
+			 */
+			LOG_ERR("SECURITY: broker closed the connection after the TLS handshake, "
+				"before CONNACK (%d) - client certificate %s?", ret,
+				IS_ENABLED(CONFIG_APP_MQTT_MTLS) ? "refused (revoked, expired, "
+								    "unknown CA)" : "required");
 			return (ret != 0) ? ret : -ECONNRESET;
 		}
 	}
@@ -699,7 +710,9 @@ static int session_run(void)
 			return ERR_PLANNED;
 		}
 
+		health_pause(HEALTH_MQTT); /* waits up to the keep-alive (20 min) */
 		ret = zsock_poll(fds, ARRAY_SIZE(fds), poll_timeout_ms());
+		health_feed(HEALTH_MQTT);
 		if (ret < 0) {
 			ret = -errno;
 			LOG_ERR("poll failed (%d)", ret);
@@ -775,7 +788,9 @@ static void mqtt_thread(void *p1, void *p2, void *p3)
 		int ret;
 
 		set_state(APP_MQTT_STATE_IDLE);
+		health_pause(HEALTH_MQTT);
 		(void)network_wait_up(K_FOREVER);
+		health_feed(HEALTH_MQTT);
 		atomic_set(&link_lost, 0);
 		atomic_set(&disconnect_requested, 0);
 
@@ -807,6 +822,7 @@ static void mqtt_thread(void *p1, void *p2, void *p3)
 			 * being shut down; wait until it has been down once.
 			 */
 			set_state(APP_MQTT_STATE_IDLE);
+			health_pause(HEALTH_MQTT);
 			(void)k_event_wait(network_events(), NETWORK_EVT_DOWN, false, K_FOREVER);
 			continue;
 		}
@@ -828,6 +844,7 @@ static void mqtt_thread(void *p1, void *p2, void *p3)
 
 			set_state(APP_MQTT_STATE_BACKOFF);
 			LOG_WRN("Reconnect in %u s", delay_s);
+			health_pause(HEALTH_MQTT);
 			k_sleep(K_SECONDS(delay_s));
 		}
 		backoff_s = MIN(backoff_s * 2U, (uint32_t)CONFIG_APP_MQTT_BACKOFF_MAX_S);
@@ -863,7 +880,22 @@ int app_mqtt_init(void)
 
 int app_mqtt_start(void)
 {
-	if (CONFIG_APP_MQTT_PASSWORD[0] == '\0') {
+	if (IS_ENABLED(CONFIG_APP_MQTT_MTLS)) {
+		char cn[65];
+		int ret = tls_client_cert_cn(cn, sizeof(cn));
+
+		/* Mosquitto uses the CN as user name: a certificate for another
+		 * id would connect, but the ACL would silently drop every message.
+		 */
+		if ((ret != 0) || (strcmp(cn, mqtt_user()) != 0)) {
+			LOG_ERR("SECURITY: client certificate is for '%s', this device is '%s' - "
+				"MQTT not started (build.ps1 -Mtls -DeviceId %s)",
+				(ret == 0) ? cn : "?", mqtt_user(), mqtt_user());
+			return -EINVAL;
+		}
+		LOG_INF("mTLS: client certificate CN=%s, port %d", cn,
+			CONFIG_APP_MQTT_BROKER_PORT);
+	} else if (CONFIG_APP_MQTT_PASSWORD[0] == '\0') {
 		LOG_ERR("No MQTT password: create app/secrets.conf (see secrets.conf.example) "
 			"with CONFIG_APP_MQTT_PASSWORD for user %s", mqtt_user());
 		return -EINVAL;

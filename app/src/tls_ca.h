@@ -37,6 +37,12 @@ const sec_tag_t *tls_ca_tags(void);
 /** @return Number of registered security tags. */
 size_t tls_ca_count(void);
 
+/**
+ * @brief Common name (CN) of the embedded client certificate (mTLS).
+ * @return 0, -ENOTSUP without mTLS, other negative errno on failure.
+ */
+int tls_client_cert_cn(char *buf, size_t size);
+
 #ifdef __cplusplus
 }
 #endif

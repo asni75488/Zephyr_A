@@ -21,6 +21,7 @@ target_sources(app PRIVATE
     src/tls_ca.c
     src/network.c
     src/power.c
+    src/health.c
     src/uplink.c
     src/soc_log.c
     src/security.c
@@ -52,3 +53,10 @@ zephyr_a_add_ca_certs(app
     ${CMAKE_CURRENT_SOURCE_DIR}/ca/isrg-root-x2.der
     ${CMAKE_CURRENT_SOURCE_DIR}/ca/isrg-root-x1.der
 )
+
+# Part 10: client certificate + key (mTLS), selected by build.ps1 -Mtls
+if(CONFIG_APP_MQTT_MTLS)
+  include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/client_cert.cmake)
+  zephyr_a_add_client_cert(app ${CONFIG_APP_MQTT_CLIENT_CERT_FILE}
+                               ${CONFIG_APP_MQTT_CLIENT_KEY_FILE})
+endif()
