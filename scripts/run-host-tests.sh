@@ -25,9 +25,17 @@ TMP=$(mktemp -d /tmp/zephyr_a_host_tests.XXXX)
 declare -a RESULTS=()
 FAILED=0
 
-result() { # <step> <PASS|FAIL|SKIP> <detail>
+result() { # <step> <PASS|FAIL|SKIP> <detail> [<log file>]
 	RESULTS+=("$(printf '%-4s %-28s %s' "$2" "$1" "$3")")
-	[ "$2" = FAIL ] && FAILED=1
+	if [ "$2" = FAIL ]; then
+		FAILED=1
+		# CI: the log files stay in the container, so show the end of it here
+		if [ -n "${4:-}" ] && [ -f "$4" ]; then
+			echo "---- $1: last lines of $4"
+			tail -n 30 "$4"
+			echo "----"
+		fi
+	fi
 	return 0
 }
 
@@ -39,7 +47,7 @@ ztest() { # <name>
 	local line
 	line=$(grep -E "^SUITE (PASS|FAIL)" "$log" | tail -1)
 	if [[ "$line" == "SUITE PASS"* ]]; then result "$1" PASS "${line#*: }"
-	else result "$1" FAIL "see $log"; fi
+	else result "$1" FAIL "see $log" "$log"; fi
 }
 
 echo "== 1/2 ztest suites"
@@ -51,7 +59,7 @@ if command -v west >/dev/null && { [ -n "${MOSQ_DIR:-}" ] || command -v mosquitt
 	if bash "$REPO/app/tests/mqtt_tls/run.sh" "$WS" ${LE_CERTS:+"$LE_CERTS"} >"$TMP/mqtt_tls.log" 2>&1; then
 		result mqtt_tls PASS "$(grep -E '^Result:' "$TMP/mqtt_tls.log" | tail -1)"
 	else
-		result mqtt_tls FAIL "$(grep -E '^Result:' "$TMP/mqtt_tls.log" | tail -1) - see $TMP/mqtt_tls.log"
+		result mqtt_tls FAIL "$(grep -E '^Result:' "$TMP/mqtt_tls.log" | tail -1) - see $TMP/mqtt_tls.log" "$TMP/mqtt_tls.log"
 	fi
 else
 	result mqtt_tls SKIP "needs west and mosquitto (or MOSQ_DIR)"
@@ -66,7 +74,7 @@ if command -v node >/dev/null; then
 		n=$((n + 1))
 	done
 	if [ $ok = 1 ]; then result node-red PASS "$n test files"
-	else result node-red FAIL "see $TMP/node.log"; fi
+	else result node-red FAIL "see $TMP/node.log" "$TMP/node.log"; fi
 else
 	result node-red SKIP "node not found"
 fi
