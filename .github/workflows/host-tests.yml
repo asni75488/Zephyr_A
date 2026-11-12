@@ -63,7 +63,9 @@ jobs:
     runs-on: ubuntu-24.04
     container:
       image: ghcr.io/zephyrproject-rtos/zephyr-build:v0.29.1
-      options: --user root
+      # The broker's name must resolve to the test broker: Docker manages
+      # /etc/hosts in the container, so the entry is set at start.
+      options: --user root --add-host zephyra.vps.webdock.cloud:127.0.0.1
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
@@ -80,12 +82,12 @@ jobs:
           ls -d /opt/toolchains/zephyr-sdk-*
           echo "ZEPHYR_SDK_INSTALL_DIR=/opt/toolchains/zephyr-sdk-$(cat zephyr/SDK_VERSION)" >> "$GITHUB_ENV"
 
-      - name: Mosquitto and hosts entry
+      - name: Mosquitto
         run: |
           apt-get update -qq
           DEBIAN_FRONTEND=noninteractive apt-get install -y -qq mosquitto mosquitto-clients
           mosquitto -h | head -1 || true
-          echo "127.0.0.1 zephyra.vps.webdock.cloud" >> /etc/hosts
+          getent hosts zephyra.vps.webdock.cloud
 
       - name: Host tests
         run: bash zephyr_a/scripts/run-host-tests.sh "$GITHUB_WORKSPACE"
