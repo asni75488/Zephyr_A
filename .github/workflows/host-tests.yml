@@ -1,0 +1,87 @@
+# Zephyr_A - automatic host tests on every push and pull request (part 11).
+#
+# Job "tools": fast checks without Zephyr (Node-RED functions, ShellCheck,
+#   PowerShell syntax, device PKI, fail2ban filter).
+# Job "firmware": west workspace from west.yml, the two ztest suites and the
+#   full native_sim suite against the real Mosquitto 2.0 broker
+#   (scripts/run-host-tests.sh). Same image as .devcontainer/.
+# Nothing here needs secrets: tests use their own throw-away PKI.
+
+name: host-tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  tools:
+    name: Scripts, Node-RED, PKI, fail2ban
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq shellcheck fail2ban python3-cryptography
+
+      - name: Node-RED function tests
+        run: for t in cloud/node-red/test/*.test.js; do node "$t"; done
+
+      - name: ShellCheck
+        run: git ls-files '*.sh' | xargs shellcheck -x -P SCRIPTDIR
+
+      - name: PowerShell syntax
+        shell: pwsh
+        run: |
+          $bad = 0
+          Get-ChildItem scripts -Filter *.ps1 | ForEach-Object {
+            $e = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$null, [ref]$e)
+            foreach ($x in $e) { Write-Host "$($_.Name):$($x.Extent.StartLineNumber) $($x.Message)"; $bad++ }
+          }
+          if ($bad) { exit 1 }
+
+      - name: Device PKI (issue, revoke, openssl verify)
+        run: |
+          P="python3 scripts/device_pki.py --dir /tmp/pki"
+          $P init && $P issue dev-a && $P issue dev-b && $P revoke dev-b
+          openssl verify -CAfile /tmp/pki/ca.crt /tmp/pki/devices/dev-a.crt
+          ! openssl verify -crl_check -CRLfile /tmp/pki/crl.pem -CAfile /tmp/pki/ca.crt /tmp/pki/devices/dev-b.crt
+
+      - name: fail2ban filter
+        run: |
+          n=$(fail2ban-regex cloud/fail2ban/test/mosquitto-sample.log \
+                cloud/fail2ban/filter.d/zephyr-a-mosquitto.conf | sed -n 's/^Lines: .* \([0-9]*\) matched.*/\1/p')
+          echo "matched lines: $n"; test "$n" = 14
+
+  firmware:
+    name: Zephyr native_sim tests (ztest + Mosquitto)
+    runs-on: ubuntu-24.04
+    container:
+      image: ghcr.io/zephyrproject-rtos/zephyr-build:v0.29.1
+      options: --user root
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: zephyr_a
+
+      - name: West workspace (Zephyr v4.4.0 + allowlisted modules)
+        run: |
+          west init -l zephyr_a
+          west update --narrow -o=--depth=1
+          west zephyr-export
+
+      - name: Mosquitto and hosts entry
+        run: |
+          apt-get update -qq
+          DEBIAN_FRONTEND=noninteractive apt-get install -y -qq mosquitto mosquitto-clients
+          mosquitto -h | head -1 || true
+          echo "127.0.0.1 zephyra.vps.webdock.cloud" >> /etc/hosts
+
+      - name: Host tests
+        run: bash zephyr_a/scripts/run-host-tests.sh "$GITHUB_WORKSPACE"

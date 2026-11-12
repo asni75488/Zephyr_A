@@ -14,7 +14,9 @@ fi
 west update --narrow -o=--depth=1
 west config zephyr.base-prefer configfile
 west zephyr-export
-pip install --user $(west packages pip)
+# One pip call with all requirement files of the workspace (Zephyr, HAL,
+# MCUboot, nanopb). The container has no venv, hence --user.
+west packages pip --install --ignore-venv-check -- --user
 west blobs fetch hal_espressif --auto-accept
 
 echo "Devcontainer ready. Build with:"
