@@ -14,6 +14,7 @@
 #include <zephyr/sys/atomic.h>
 
 #include "mqtt_client.h"
+#include "health.h"
 #include "network.h"
 #include "sparkplug.h"
 #include "uplink.h"
@@ -82,12 +83,16 @@ static const char *run_uplink(uint32_t n)
 		sparkplug_batches_queued());
 	(void)network_request_up();
 
+	health_pause(HEALTH_UPLINK);
 	ev = k_event_wait(&uplink_events, EV_FLUSHED, false,
 			  K_SECONDS(CONFIG_APP_UPLINK_TIMEOUT_S));
+	health_feed(HEALTH_UPLINK);
 	if (ev != 0U) {
 		LOG_INF("Uplink #%u: data sent after %lld s, staying %d s for commands", n,
 			(k_uptime_get() - t0) / 1000, CONFIG_APP_UPLINK_LINGER_S);
+		health_pause(HEALTH_UPLINK);
 		k_sleep(K_SECONDS(CONFIG_APP_UPLINK_LINGER_S));
+		health_feed(HEALTH_UPLINK);
 
 		/* Batches that arrived during the linger time were sent at once
 		 * (session is up); end the session cleanly: NDEATH + DISCONNECT.
@@ -137,7 +142,10 @@ static void uplink_thread(void *p1, void *p2, void *p3)
 		bool early = false;
 
 		while (left > 0) {
+			health_pause(HEALTH_UPLINK);
 			uint32_t ev = k_event_wait(&uplink_events, EV_BATCH, false, K_MSEC(left));
+
+			health_feed(HEALTH_UPLINK);
 
 			k_event_clear(&uplink_events, EV_BATCH);
 			if ((ev != 0U) && (sparkplug_batches_queued() >= EARLY_FILL)) {

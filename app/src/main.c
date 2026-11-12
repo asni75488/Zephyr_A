@@ -27,6 +27,7 @@
 #include "sensor.h"
 #include "sparkplug.h"
 #include "security.h"
+#include "health.h"
 #include "timesync.h"
 #include "uplink.h"
 
@@ -43,6 +44,7 @@ struct module {
  */
 static const struct module modules[] = {
 	{"power", app_power_init, NULL},
+	{"health", health_init, NULL}, /* task watchdog (part 10) */
 	{"security", app_security_init, NULL}, /* RNG entropy before any TLS */
 	{"timesync", timesync_init, NULL},
 	{"app_logic", app_logic_init, app_logic_start},

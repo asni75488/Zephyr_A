@@ -63,6 +63,15 @@ bool app_power_deep_sleep_supported(void);
  */
 int app_power_deep_sleep(uint32_t seconds);
 
+/**
+ * @brief Store a note that survives a software reset (LP SRAM, part 10).
+ * Callable from ISR context. Without LP core the note is lost.
+ */
+void app_power_set_reset_note(uint32_t note);
+
+/** @brief Note stored before the last reset (0 = none); cleared by reading. */
+uint32_t app_power_take_reset_note(void);
+
 /** @brief LP-core counters. */
 void app_power_get_lp_stats(struct app_power_lp_stats *out);
 

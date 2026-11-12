@@ -13,6 +13,7 @@
 #include <zephyr/logging/log.h>
 
 #include "app_logic.h"
+#include "health.h"
 #include "power.h"
 #include "sensor.h"
 #include "sparkplug.h"
@@ -173,7 +174,9 @@ static void app_logic_thread(void *p1, void *p2, void *p3)
 	};
 
 	while (true) {
+		health_pause(HEALTH_APP_LOGIC);
 		(void)k_poll(events, ARRAY_SIZE(events), K_FOREVER);
+		health_feed(HEALTH_APP_LOGIC);
 
 		struct app_cmd cmd;
 

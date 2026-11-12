@@ -11,7 +11,9 @@
  * HP core has written it.
  *
  * Rules (no locks are needed):
- *  - Every field has exactly one writer (HP_ or LP_ prefix in the comment).
+ *  - Every field has exactly one writer (HP: or LP: in the comment). The
+ *    HP fields are grouped at the top, except hp_reset_note (part 10),
+ *    which took the place of a reserved word at the end.
  *  - All fields are naturally aligned 32-bit words: single loads/stores are
  *    atomic on both RISC-V cores.
  *
@@ -62,7 +64,7 @@ struct lp_shared {
 	uint32_t lp_wakes;       /**< LP: HP wake-ups requested (total)             */
 	uint32_t lp_resets;      /**< LP: HP resets by the supervisor (total)       */
 	uint32_t lp_wake_sent;   /**< LP: 1 = wake-up for the current sleep sent    */
-	uint32_t reserved;
+	uint32_t hp_reset_note;  /**< HP: why the HP core reset itself (task watchdog, part 10) */
 };
 
 /* 16 words = 64 B = size of the app_lp_shm devicetree node. */

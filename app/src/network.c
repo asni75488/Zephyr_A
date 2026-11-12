@@ -39,6 +39,7 @@
 #include <zephyr/sys/atomic.h>
 
 #include "network.h"
+#include "health.h"
 #include "power.h"
 #include "timesync.h"
 
@@ -479,9 +480,17 @@ static void cellular_event_handler(const struct device *dev, enum cellular_event
  * Thread
  * ------------------------------------------------------------------------
  */
+/* The only place the network thread waits; the task watchdog (part 10)
+ * supervises the work between two waits, not the wait itself (a backoff or
+ * OFF may legitimately last minutes or forever).
+ */
 static uint32_t take_events(uint32_t mask, k_timeout_t timeout)
 {
+	health_pause(HEALTH_NETWORK);
+
 	uint32_t ev = k_event_wait(&int_events, mask, false, timeout);
+
+	health_feed(HEALTH_NETWORK);
 
 	if (ev != 0U) {
 		k_event_clear(&int_events, ev);

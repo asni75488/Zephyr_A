@@ -1,0 +1,2 @@
+# Application Kconfig (APP_HEALTH_*, APP_SAMPLE_INTERVAL_MS, APP_LOG_LEVEL)
+rsource "../../Kconfig"

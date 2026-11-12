@@ -370,6 +370,42 @@ config APP_SLEEP_MAX_S
 
 endmenu
 
+menu "Health: task watchdog (part 10)"
+
+config APP_HEALTH
+	bool "Task watchdog for the application threads"
+	default y
+	select TASK_WDT
+	help
+	  Every application thread has a task watchdog channel; the time a
+	  thread is busy between two waits must stay below
+	  APP_HEALTH_TIMEOUT_S, otherwise the chip is reset and the stuck
+	  thread is reported at the next boot (health.h). The hardware
+	  watchdog wdt0 (alias watchdog0) is the fallback for a stuck kernel.
+
+config APP_HEALTH_TIMEOUT_S
+	int "Longest time a thread may be busy without feeding [s]"
+	depends on APP_HEALTH
+	range 30 3600
+	default 180
+	help
+	  Longest legitimate busy phases: modem suspend (up to 30 s in the
+	  driver), DNS + TLS handshake + CONNACK over LTE-M (up to ~70 s),
+	  a Modbus read with retries. 180 s leaves margin.
+
+# One task watchdog channel per thread (health.h), plus spare
+config TASK_WDT_CHANNELS
+	default 8 if APP_HEALTH
+
+config APP_HEALTH_REBOOT
+	bool "Reset the chip when a thread is stuck"
+	depends on APP_HEALTH
+	default y
+	help
+	  Disable only in tests: the timeout is then counted and logged.
+
+endmenu
+
 menu "Time synchronisation (SNTP)"
 
 config APP_TIMESYNC_SERVER1
@@ -407,7 +443,38 @@ config APP_MQTT_BROKER_HOST
 
 config APP_MQTT_BROKER_PORT
 	int "MQTT broker port (TLS)"
+	default 8884 if APP_MQTT_MTLS
 	default 8883
+	help
+	  8883: user name + password. 8884: client certificate (mTLS,
+	  part 10, cloud/mosquitto/zephyr_a_mtls.conf).
+
+config APP_MQTT_MTLS
+	bool "Authenticate with a client certificate instead of a password (mTLS)"
+	help
+	  The device proves its identity with an ECDSA P-256 key and a
+	  certificate (CN = device id) issued by the own device CA
+	  (scripts/device_pki.py). Mosquitto uses the CN as user name, so the
+	  existing ACL applies unchanged. No password is sent or stored.
+	  Enabled by scripts/build.ps1 -Mtls (writes certs/mtls.conf).
+
+config APP_MQTT_CLIENT_CERT_FILE
+	string "Client certificate (DER)"
+	depends on APP_MQTT_MTLS
+	help
+	  Absolute path, e.g. certs/device-pki/devices/<id>.crt.der.
+
+config APP_MQTT_CLIENT_KEY_FILE
+	string "Client private key (PKCS#8 DER)"
+	depends on APP_MQTT_MTLS
+	help
+	  Absolute path, e.g. certs/device-pki/devices/<id>.key.der. Secret:
+	  stays in certs/ (ignored by git) and the build directory.
+
+config APP_MQTT_CLIENT_SEC_TAG
+	int "TLS security tag of the client certificate and key"
+	depends on APP_MQTT_MTLS
+	default 99
 
 config APP_MQTT_USERNAME
 	string "MQTT user name (empty = device id)"
@@ -422,7 +489,8 @@ config APP_MQTT_PASSWORD
 	default ""
 	help
 	  Set only in app/secrets.conf (ignored by git). The client refuses to
-	  start without a password: the broker has no anonymous access.
+	  start without a password (or mTLS): the broker has no anonymous
+	  access. Not used with APP_MQTT_MTLS.
 
 config APP_MQTT_KEEPALIVE_S
 	int "MQTT keep-alive [s]"

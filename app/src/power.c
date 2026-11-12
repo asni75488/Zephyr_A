@@ -49,6 +49,7 @@ extern const size_t zephyr_a_lp_image_size;
 
 static bool lp_active;
 static bool reset_by_lp;
+static uint32_t reset_note;
 
 /*
  * The LP image is outside MCUboot's signature check: Zephyr copies the LP
@@ -123,7 +124,10 @@ static void lp_setup(void)
 	if (!valid) {
 		shm->lp_wakes = 0U;
 		shm->lp_resets = 0U;
+		shm->hp_reset_note = 0U;
 	}
+	reset_note = shm->hp_reset_note;
+	shm->hp_reset_note = 0U;
 	shm->hp_resets_seen = shm->lp_resets;
 	shm->period_ms = LP_PERIOD_MS;
 	shm->watchdog_s = CONFIG_APP_LPCORE_WATCHDOG_S;
@@ -218,6 +222,27 @@ int app_power_deep_sleep(uint32_t seconds)
 #else
 	ARG_UNUSED(seconds);
 	return -ENOTSUP;
+#endif
+}
+
+void app_power_set_reset_note(uint32_t note)
+{
+#if defined(CONFIG_APP_LPCORE)
+	shm->hp_reset_note = note; /* LP SRAM: kept over the software reset */
+#else
+	ARG_UNUSED(note);
+#endif
+}
+
+uint32_t app_power_take_reset_note(void)
+{
+#if defined(CONFIG_APP_LPCORE)
+	uint32_t note = reset_note;
+
+	reset_note = 0U;
+	return note;
+#else
+	return 0U;
 #endif
 }
 

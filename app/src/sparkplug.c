@@ -47,6 +47,7 @@
 #include "device_info.h"
 #include "mqtt_client.h"
 #include "network.h"
+#include "health.h"
 #include "power.h"
 #include "proto/sparkplug_b.pb.h"
 #include "security.h"
@@ -212,8 +213,15 @@ static void set_long(spb_metric_t *m, int64_t v)
 
 static const char *reset_cause_text(uint32_t cause)
 {
+	static char wdt_text[32];
+	const char *stuck = health_last_reset_task();
+
 	if (app_power_reset_by_lp()) {
 		return "lp-core supervisor"; /* reported as "software" by hwinfo */
+	}
+	if (stuck != NULL) {
+		(void)snprintf(wdt_text, sizeof(wdt_text), "task watchdog (%s)", stuck);
+		return wdt_text;
 	}
 
 	/* hwinfo bits, most relevant first (same order as device_info.c) */
@@ -877,7 +885,9 @@ static void sparkplug_thread(void *p1, void *p2, void *p3)
 		if (born && (CONFIG_APP_SPARKPLUG_STATUS_INTERVAL_S > 0)) {
 			timeout = K_MSEC(MAX(next_status_ms - k_uptime_get(), 0));
 		}
+		health_pause(HEALTH_SPARKPLUG);
 		(void)k_poll(events, born ? 3 : 2, timeout);
+		health_feed(HEALTH_SPARKPLUG);
 		k_poll_signal_reset(&wake_sig);
 
 		while (k_msgq_get(&rx_q, &rx_buf, K_NO_WAIT) == 0) {

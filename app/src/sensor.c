@@ -20,6 +20,7 @@
 
 #include "app_logic.h"
 #include "modbus.h"
+#include "health.h"
 #include "power.h"
 #include "sensor.h"
 #include "timesync.h"
@@ -278,6 +279,7 @@ static void sensor_thread(void *p1, void *p2, void *p3)
 		struct measurement m;
 
 		(void)k_sem_take(&sample_sem, K_FOREVER);
+		health_feed(HEALTH_SENSOR); /* timer-driven: at least every 15 s */
 
 		/* Interval may be changed at runtime (NCMD, part 7). */
 		app_logic_get_config(&cfg);
