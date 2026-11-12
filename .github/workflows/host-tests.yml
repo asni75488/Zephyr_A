@@ -87,7 +87,7 @@ jobs:
           apt-get update -qq
           DEBIAN_FRONTEND=noninteractive apt-get install -y -qq mosquitto mosquitto-clients
           mosquitto -h | head -1 || true
-          getent hosts zephyra.vps.webdock.cloud
+          getent ahostsv4 zephyra.vps.webdock.cloud
 
       - name: Host tests
         run: bash zephyr_a/scripts/run-host-tests.sh "$GITHUB_WORKSPACE"

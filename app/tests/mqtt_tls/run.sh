@@ -44,7 +44,7 @@ EXE_INT=$BUILDI/zephyr/zephyr.exe
 PASS=0
 FAIL=0
 
-getent hosts "$HOST" | grep -q 127.0.0.1 || { echo "Add '127.0.0.1 $HOST' to /etc/hosts"; exit 1; }
+getent ahostsv4 "$HOST" | grep -q "^127.0.0.1 " || { echo "Add '127.0.0.1 $HOST' to /etc/hosts"; exit 1; }
 
 cleanup() { pkill -P $$ 2>/dev/null || true; }
 trap cleanup EXIT
