@@ -34,7 +34,18 @@ check "8883 listening" sh -c "ss -ltn | grep -qE ':8883\b'"
 
 info "Firewall"
 check "UFW active" sh -c "ufw status | grep -q 'Status: active'"
-check "8883/tcp allowed" sh -c "ufw status | grep -qE '^8883/tcp +ALLOW'"
+if [ -f /etc/mosquitto/conf.d/zephyr_a_mtls.conf ]; then
+	check "8884/tcp allowed (mTLS, part 10)" sh -c "ufw status | grep -qE '^8884/tcp +ALLOW'"
+	check "8884 listening" sh -c "ss -ltn | grep -qE ':8884\b'"
+	check "CRL valid for more than 30 days" sh -c "[ \$(date -d \"\$(openssl crl -in /etc/mosquitto/ca_certificates/zephyr-a-device-crl.pem -noout -nextupdate | cut -d= -f2)\" +%s) -gt \$(date -d '+30 days' +%s) ]"
+	check "8884 refuses a client without certificate" sh -c "echo | timeout 10 openssl s_client -connect $DOMAIN:8884 -servername $DOMAIN 2>&1 | grep -qiE 'alert|certificate required'"
+	ufw status | grep -qE '^8883/tcp +ALLOW' && warn "8883 (password) still open - close it with 65-mtls.sh --close-8883 when all devices use mTLS"
+else
+	check "8883/tcp allowed" sh -c "ufw status | grep -qE '^8883/tcp +ALLOW'"
+fi
+if command -v fail2ban-client >/dev/null; then
+	check "fail2ban jail zephyr-a-mosquitto active (part 10)" sh -c "fail2ban-client status zephyr-a-mosquitto >/dev/null"
+fi
 check "1883 not allowed from outside" sh -c "! ufw status | grep -qE '^1883'"
 check "FTP port 21 closed" sh -c "! ufw status | grep -qE '^21(/tcp)? +ALLOW'"
 
