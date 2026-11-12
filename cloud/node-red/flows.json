@@ -96,7 +96,8 @@
     "wires": [
       [
         "a1f0c0de00000006",
-        "a1f0c0de00000007"
+        "a1f0c0de00000007",
+        "a1f0c0de00000033"
       ],
       [
         "a1f0c0de0000000c"
@@ -223,6 +224,34 @@
     "width": 12,
     "height": 1,
     "order": 1,
+    "showTitle": true,
+    "className": "",
+    "visible": "true",
+    "disabled": "false",
+    "groupType": "default"
+  },
+  {
+    "id": "a1f0c0de00000031",
+    "type": "ui-group",
+    "name": "Edge nodes",
+    "page": "a1f0c0de0000000a",
+    "width": 12,
+    "height": 1,
+    "order": 2,
+    "showTitle": true,
+    "className": "",
+    "visible": "true",
+    "disabled": "false",
+    "groupType": "default"
+  },
+  {
+    "id": "a1f0c0de00000032",
+    "type": "ui-group",
+    "name": "Kommandoer",
+    "page": "a1f0c0de0000000a",
+    "width": 12,
+    "height": 1,
+    "order": 3,
     "showTitle": true,
     "className": "",
     "visible": "true",
@@ -568,5 +597,336 @@
     "x": 720,
     "y": 420,
     "wires": []
+  },
+  {
+    "id": "a1f0c0de00000030",
+    "type": "comment",
+    "z": "a1f0c0de00000001",
+    "name": "Dashboard: edge node overview and commands (part 10)",
+    "info": "The dashboard (https://<domain>:1880/dashboard, login httpNodeAuth) shows one row per edge node and sends NCMD through the same encoder as the inject buttons. Sources: cloud/node-red/overview.js, dashcmd.js.",
+    "x": 370,
+    "y": 640,
+    "wires": []
+  },
+  {
+    "id": "a1f0c0de00000033",
+    "type": "function",
+    "z": "a1f0c0de00000001",
+    "name": "Edge node overview",
+    "func": "// Zephyr_A - Node-RED function \"Edge node overview\" (part 10, dashboard).\n// Source of the function node in flows.json; unit test: test/overview.test.js.\n//\n// In:  the record of every Sparkplug message from \"Sparkplug B decode\"\n//      (output 1: msg.payload = {type, edge, device, received, metrics[]})\n//      or msg.topic === 'refresh' (inject every 30 s: ages, command queue)\n// Out: [1] msg.payload = one row per edge node -> ui-table (action replace)\n//      [2] msg.options  = edge nodes for the command target -> ui-dropdown\n//          (only when the list of nodes changes)\n//\n// Shows per node what an operator needs at a glance: online/offline since,\n// last data, firmware, reset cause, security posture, signal, reconnects,\n// configuration and commands waiting for the node (interval mode, part 9).\n\nconst info = flow.get('nodeInfo') || {};\nconst pending = flow.get('pendingNcmd') || {};\n\nconst r = msg.payload;\nif (msg.topic !== 'refresh' && r && r.edge && r.type) {\n    const n = info[r.edge] || (info[r.edge] = { edge: r.edge });\n    const byName = {};\n    for (const m of (r.metrics || [])) {\n        byName[m.name] = m.value;\n    }\n    const take = (metric, field, f) => {\n        if (byName[metric] !== undefined && byName[metric] !== null) {\n            n[field] = f ? f(byName[metric]) : byName[metric];\n        }\n    };\n    if (r.type === 'NBIRTH') {\n        n.online = true;\n        n.since = r.received;\n    } else if (r.type === 'NDEATH') {\n        n.online = false;\n        n.since = r.received;\n    }\n    if (r.type === 'DDATA' || r.type === 'NDATA') {\n        n.lastData = r.received;\n    }\n    take('Properties/FW Version', 'fw');\n    take('Properties/Reset Cause', 'reset');\n    take('Properties/Security', 'security');\n    take('Status/RSSI', 'rssi');\n    take('Status/MQTT Connects', 'connects');\n    take('Config/Sample Interval', 'interval', (v) => v / 1000);\n    take('Config/Batch Size', 'batch');\n    flow.set('nodeInfo', info);\n}\n\nconst t = (ms) => (ms ? new Date(ms).toISOString().replace('T', ' ').slice(0, 19) + ' UTC' : '-');\nconst ago = (ms) => {\n    if (!ms) return '';\n    const s = Math.max(0, Math.round((Date.now() - ms) / 1000));\n    return s < 120 ? s + ' s' : (s < 7200 ? Math.round(s / 60) + ' min' : Math.round(s / 3600) + ' t');\n};\n\nconst rows = Object.keys(info).sort().map((e) => {\n    const n = info[e];\n    const q = pending[e] || [];\n    return {\n        'Node': e,\n        'Status': (n.online ? 'online' : 'offline') + (n.since ? ' i ' + ago(n.since) : ''),\n        'Sidste data': n.lastData ? t(n.lastData) + ' (' + ago(n.lastData) + ' siden)' : '-',\n        'Firmware': n.fw || '-',\n        'Reset': n.reset || '-',\n        'Sikkerhed': n.security || '-',\n        'RSSI [dBm]': (n.rssi === undefined) ? '-' : n.rssi,\n        'MQTT-forbindelser': (n.connects === undefined) ? '-' : n.connects,\n        'Interval [s]': (n.interval === undefined) ? '-' : n.interval,\n        'Batch': (n.batch === undefined) ? '-' : n.batch,\n        'Kommandoer i kø': q.length ? q.map((m) => m.name.split('/').pop() + '=' + m.value).join(', ') : '-'\n    };\n});\n\nconst edgesKey = Object.keys(info).sort().join(',');\nlet options = null;\nif (edgesKey !== flow.get('dashEdgesKey')) {\n    flow.set('dashEdgesKey', edgesKey);\n    options = {\n        options: [{ label: 'Alle noder', value: '' }]\n            .concat(Object.keys(info).sort().map((e) => ({ label: e, value: e }))),\n        payload: flow.get('dashTarget') || ''\n    };\n}\n\nnode.status({ fill: 'blue', shape: 'dot', text: rows.length + ' node(s)' });\nreturn [{ payload: rows }, options];\n",
+    "outputs": 2,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "outputLabels": [
+      "table rows",
+      "dropdown options"
+    ],
+    "x": 420,
+    "y": 700,
+    "wires": [
+      [
+        "a1f0c0de00000035"
+      ],
+      [
+        "a1f0c0de00000036"
+      ]
+    ]
+  },
+  {
+    "id": "a1f0c0de00000034",
+    "type": "inject",
+    "z": "a1f0c0de00000001",
+    "name": "refresh 30 s",
+    "props": [
+      {
+        "p": "topic",
+        "vt": "str"
+      }
+    ],
+    "repeat": "30",
+    "crontab": "",
+    "once": true,
+    "onceDelay": "2",
+    "topic": "refresh",
+    "x": 170,
+    "y": 740,
+    "wires": [
+      [
+        "a1f0c0de00000033"
+      ]
+    ]
+  },
+  {
+    "id": "a1f0c0de00000035",
+    "type": "ui-table",
+    "z": "a1f0c0de00000001",
+    "group": "a1f0c0de00000031",
+    "name": "Edge node table",
+    "label": "",
+    "order": 1,
+    "width": 12,
+    "height": 0,
+    "maxrows": 0,
+    "passthru": false,
+    "autocols": true,
+    "showSearch": false,
+    "deselect": true,
+    "selectionType": "none",
+    "columns": [],
+    "mobileBreakpoint": "sm",
+    "mobileBreakpointType": "defaults",
+    "action": "replace",
+    "className": "",
+    "x": 690,
+    "y": 700,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "a1f0c0de00000036",
+    "type": "ui-dropdown",
+    "z": "a1f0c0de00000001",
+    "group": "a1f0c0de00000032",
+    "name": "Target",
+    "label": "Edge node",
+    "tooltip": "",
+    "order": 1,
+    "width": 4,
+    "height": 1,
+    "passthru": false,
+    "multiple": false,
+    "chips": false,
+    "clearable": false,
+    "options": [
+      {
+        "label": "Alle noder",
+        "value": "",
+        "type": "str"
+      }
+    ],
+    "payload": "",
+    "topic": "target",
+    "topicType": "str",
+    "className": "",
+    "typeIsComboBox": false,
+    "msgTrigger": "onChange",
+    "x": 670,
+    "y": 760,
+    "wires": [
+      [
+        "a1f0c0de0000003c"
+      ]
+    ]
+  },
+  {
+    "id": "a1f0c0de00000037",
+    "type": "ui-button",
+    "z": "a1f0c0de00000001",
+    "group": "a1f0c0de00000032",
+    "name": "Rebirth",
+    "label": "Rebirth",
+    "order": 2,
+    "width": 2,
+    "height": 1,
+    "emulateClick": false,
+    "tooltip": "",
+    "color": "",
+    "bgcolor": "",
+    "className": "",
+    "icon": "",
+    "iconPosition": "left",
+    "payload": "{\"name\": \"Node Control/Rebirth\", \"type\": \"Boolean\", \"value\": true}",
+    "payloadType": "json",
+    "topic": "command",
+    "topicType": "str",
+    "buttonColor": "",
+    "textColor": "",
+    "iconColor": "",
+    "enableClick": true,
+    "enablePointerdown": false,
+    "pointerdownPayload": "",
+    "pointerdownPayloadType": "str",
+    "enablePointerup": false,
+    "pointerupPayload": "",
+    "pointerupPayloadType": "str",
+    "x": 180,
+    "y": 800,
+    "wires": [
+      [
+        "a1f0c0de0000003c"
+      ]
+    ]
+  },
+  {
+    "id": "a1f0c0de00000038",
+    "type": "ui-button",
+    "z": "a1f0c0de00000001",
+    "group": "a1f0c0de00000032",
+    "name": "Reboot",
+    "label": "Reboot",
+    "order": 3,
+    "width": 2,
+    "height": 1,
+    "emulateClick": false,
+    "tooltip": "",
+    "color": "",
+    "bgcolor": "#ce2c31",
+    "className": "",
+    "icon": "",
+    "iconPosition": "left",
+    "payload": "{\"name\": \"Node Control/Reboot\", \"type\": \"Boolean\", \"value\": true}",
+    "payloadType": "json",
+    "topic": "command",
+    "topicType": "str",
+    "buttonColor": "#ce2c31",
+    "textColor": "",
+    "iconColor": "",
+    "enableClick": true,
+    "enablePointerdown": false,
+    "pointerdownPayload": "",
+    "pointerdownPayloadType": "str",
+    "enablePointerup": false,
+    "pointerupPayload": "",
+    "pointerupPayloadType": "str",
+    "x": 180,
+    "y": 840,
+    "wires": [
+      [
+        "a1f0c0de0000003c"
+      ]
+    ]
+  },
+  {
+    "id": "a1f0c0de00000039",
+    "type": "ui-button",
+    "z": "a1f0c0de00000001",
+    "group": "a1f0c0de00000032",
+    "name": "Deep sleep 10 min",
+    "label": "Deep sleep 10 min",
+    "order": 4,
+    "width": 2,
+    "height": 1,
+    "emulateClick": false,
+    "tooltip": "",
+    "color": "",
+    "bgcolor": "#ab6400",
+    "className": "",
+    "icon": "",
+    "iconPosition": "left",
+    "payload": "{\"name\": \"Node Control/Sleep\", \"type\": \"Int64\", \"value\": 600}",
+    "payloadType": "json",
+    "topic": "command",
+    "topicType": "str",
+    "buttonColor": "#ab6400",
+    "textColor": "",
+    "iconColor": "",
+    "enableClick": true,
+    "enablePointerdown": false,
+    "pointerdownPayload": "",
+    "pointerdownPayloadType": "str",
+    "enablePointerup": false,
+    "pointerupPayload": "",
+    "pointerupPayloadType": "str",
+    "x": 180,
+    "y": 880,
+    "wires": [
+      [
+        "a1f0c0de0000003c"
+      ]
+    ]
+  },
+  {
+    "id": "a1f0c0de0000003a",
+    "type": "ui-slider",
+    "z": "a1f0c0de00000001",
+    "group": "a1f0c0de00000032",
+    "name": "Måleinterval [s]",
+    "label": "Måleinterval [s]",
+    "tooltip": "",
+    "order": 5,
+    "width": 6,
+    "height": 1,
+    "passthru": false,
+    "outs": "end",
+    "topic": "interval",
+    "topicType": "str",
+    "thumbLabel": true,
+    "showTicks": "always",
+    "min": 5,
+    "max": 15,
+    "step": 1,
+    "className": "",
+    "iconPrepend": "",
+    "iconAppend": "",
+    "color": "",
+    "colorTrack": "",
+    "colorThumb": "",
+    "showTextField": false,
+    "x": 170,
+    "y": 920,
+    "wires": [
+      [
+        "a1f0c0de0000003c"
+      ]
+    ]
+  },
+  {
+    "id": "a1f0c0de0000003b",
+    "type": "ui-slider",
+    "z": "a1f0c0de00000001",
+    "group": "a1f0c0de00000032",
+    "name": "Batch (målinger pr. besked)",
+    "label": "Batch (målinger pr. besked)",
+    "tooltip": "",
+    "order": 6,
+    "width": 6,
+    "height": 1,
+    "passthru": false,
+    "outs": "end",
+    "topic": "batch",
+    "topicType": "str",
+    "thumbLabel": true,
+    "showTicks": "always",
+    "min": 1,
+    "max": 12,
+    "step": 1,
+    "className": "",
+    "iconPrepend": "",
+    "iconAppend": "",
+    "color": "",
+    "colorTrack": "",
+    "colorThumb": "",
+    "showTextField": false,
+    "x": 170,
+    "y": 960,
+    "wires": [
+      [
+        "a1f0c0de0000003c"
+      ]
+    ]
+  },
+  {
+    "id": "a1f0c0de0000003c",
+    "type": "function",
+    "z": "a1f0c0de00000001",
+    "name": "Dashboard command",
+    "func": "// Zephyr_A - Node-RED function \"Dashboard command\" (part 10).\n// Source of the function node in flows.json; unit test: test/dashcmd.test.js.\n//\n// Turns dashboard widgets into input for \"Sparkplug B encode NCMD\":\n//   msg.topic 'target'   (ui-dropdown)  remember the selected edge node\n//   msg.topic 'interval' (ui-slider, s) -> Config/Sample Interval [ms]\n//   msg.topic 'batch'    (ui-slider)    -> Config/Batch Size\n//   msg.topic 'command'  (ui-button)    msg.payload = { name, type, value }\n// The same limits as the firmware are checked here, so a wrong value is\n// rejected with a visible message instead of an NCMD the device ignores.\n// Out: msg.payload = metric, msg.edge = target ('' = all known nodes)\n\nconst LIMITS = {\n    'Config/Sample Interval': [5000, 15000],\n    'Config/Batch Size': [1, 12],\n    'Node Control/Sleep': [60, 86400]\n};\n\nif (msg.topic === 'target') {\n    flow.set('dashTarget', msg.payload || '');\n    node.status({ fill: 'grey', shape: 'ring', text: 'target: ' + (msg.payload || 'all') });\n    return null;\n}\n\nlet metric;\nif (msg.topic === 'interval') {\n    metric = { name: 'Config/Sample Interval', type: 'Int64', value: Math.round(Number(msg.payload) * 1000) };\n} else if (msg.topic === 'batch') {\n    metric = { name: 'Config/Batch Size', type: 'Int64', value: Math.round(Number(msg.payload)) };\n} else if (msg.topic === 'command' && msg.payload && typeof msg.payload.name === 'string') {\n    metric = msg.payload;\n} else {\n    node.warn('Unknown dashboard input: ' + msg.topic);\n    return null;\n}\n\nconst lim = LIMITS[metric.name];\nif (lim && !(metric.value >= lim[0] && metric.value <= lim[1])) {\n    node.error(metric.name + '=' + metric.value + ' outside ' + lim[0] + '..' + lim[1]);\n    return null;\n}\n\nconst target = flow.get('dashTarget') || '';\nnode.status({ fill: 'blue', shape: 'dot', text: metric.name + '=' + metric.value + ' -> ' + (target || 'all') });\nconst out = { payload: metric };\nif (target) out.edge = target;\nreturn out;\n",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 430,
+    "y": 880,
+    "wires": [
+      [
+        "a1f0c0de00000020"
+      ]
+    ]
   }
 ]
