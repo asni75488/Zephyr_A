@@ -13,10 +13,36 @@ Opdateres i slutningen af hver del. Detaljeret kravstatus: [02-kravmatrix.md](02
 | 7 | Sparkplug B + tidssynkronisering | `del-07-sparkplug` | Færdig – testet på native_sim, **ikke på hardware endnu** (bruger gik videre til Del 8) |
 | 8 | Sikkerhed: IEC 62443-4-2 / CRA, signeret firmware | `del-08-sikkerhed` | Færdig – testet på native_sim og med `imgtool`, **ikke på hardware endnu** (bruger gik videre til Del 9) |
 | 9 | Lavt strøm- og dataforbrug, LP-kerne (`remote/`) | `del-09-strom` | Færdig – testet på native_sim (91/91 + LP-unittest 7/7), **ikke på hardware/strømmålt endnu** (bruger gik videre til Del 10) |
-| 10 | Nice to have: task watchdog, fail2ban, mTLS, dashboard (OTA udskudt) | `del-10-nice` | Færdig – testet på native_sim (105/105 + health 5/5), afventer VPS/hardwaretest og godkendelse |
-| 11 | Afslutning: test, memory layout, rapportmateriale | – | Ikke startet |
+| 10 | Nice to have: task watchdog, fail2ban, mTLS, dashboard (OTA udskudt) | `del-10-nice` | Færdig – testet på native_sim (105/105 + health 5/5), **ikke på VPS/hardware endnu** (bruger gik videre til Del 11) |
+| 11 | Afslutning: test, memory layout, rapportmateriale | `del-11-afslutning` | Færdig – alle host-tests grønne lokalt og i CI, afventer hardware-acceptprotokol (`11-afslutning.md` §4) og godkendelse |
 
 Delene blev omnummereret i Del 3 (dataopsamling før netværk).
+
+## Del 11 – lavet
+
+- **Memory layout** (N-06): `scripts/memory_layout.py` (flash, HP-SRAM, LP-SRAM fra build-outputtet, `--check` med grænser),
+  `app/overlay-stack-usage.conf` (thread analyzer til stack-måling på hardware)
+- **Samlet test:** `scripts/run-host-tests.sh` (ztest ×2, native_sim + Mosquitto, Node-RED, PKI, fail2ban, ShellCheck, memory),
+  **CI** i `.github/workflows/host-tests.yml` (jobs `tools` og `firmware`, samme image som devcontaineren)
+- **Hardware-acceptprotokol** (20 trin, Del 3–10 i rækkefølge) og **rapportmateriale** (arkitektur, designvalg,
+  nøgletal, fund E1–E10, begrænsninger) i `docs/11-afslutning.md`. `CHANGELOG.md` pr. del
+- `.devcontainer/post-create.sh` ShellCheck-ren (`west packages pip --install`). VERSION 0.11.0-del11
+- Standard forbliver continuous: strømmålingen, som skulle afgøre skiftet, mangler
+
+### Verificeret
+
+- `run-host-tests.sh` lokalt: 8/8 trin PASS (lp_supervisor 7/7, health 5/5, mqtt_tls 105/105, Node-RED 5 filer, PKI,
+  fail2ban, ShellCheck 15 scripts, memory-grænser)
+- **CI på GitHub grøn** (run 43224238403): `tools` (Node-RED, ShellCheck, PowerShell, PKI, fail2ban) og `firmware`
+  (lp_supervisor 7/7, health 5/5, **mqtt_tls 105/105** mod Mosquitto 2.0.18 fra Ubuntu i Zephyrs build-image)
+- Undervejs fundet og rettet: SDK-sti for root i CI-containeren, IPv4-tjek af hosts-opslaget (E11, E12)
+- `memory_layout.py --check` på standard-buildet: slot0 24 %, SRAM 42 %, LP 38 %
+- Stack-overlay bygger (SRAM 42,3 %)
+
+### Mangler (hardware)
+
+- [ ] Acceptprotokollen `11-afslutning.md` §4 (samler alle åbne hardwarepunkter fra Del 3–10)
+- [ ] Stack-tabellen §2.2
 
 ## Del 10 – lavet
 

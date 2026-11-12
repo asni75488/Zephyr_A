@@ -10,7 +10,7 @@ out of scope) samt arbejdsreglerne for projektet. Matrixen opdateres i slutninge
 7 Sparkplug B + tid · 8 Sikkerhed (IEC 62443-4-2 / CRA) · 9 Lavt strøm/data + LP-kerne ·
 10 Nice to have · 11 Afslutning
 
-*Sidst opdateret: Del 10.*
+*Sidst opdateret: Del 11.*
 
 ## Generelle krav
 
@@ -78,7 +78,7 @@ out of scope) samt arbejdsreglerne for projektet. Matrixen opdateres i slutninge
 | N-03 | Dashboard | Node-RED Dashboard 2.0: graf + seneste besked (Del 5), **Del 10:** tabel pr. edge node (status, sidste data, FW, reset-årsag, sikkerhed, RSSI, forbindelser, konfiguration, kommandoer i kø) + knapper/sliders til NCMD med samme grænser som firmwaren | `cloud/node-red/overview.js`, `dashcmd.js`, `flows.json` | 5/10 | 🟡 | Unittests `overview`/`dashcmd`/`flows` bestået. Nodeskemaer efter Dashboard 2.0 v1.36. Mangler: import i Node-RED på VPS'en |
 | N-04 | mTLS | Egen device-CA på pc'en (`scripts/device_pki.py`, ECDSA P-256), certifikat pr. enhed (CN = enheds-id), `build.ps1 -Mtls`. Mosquitto-listener 8884: `require_certificate`, `use_identity_as_username`, `crlfile` (`65-mtls.sh`). Firmware tjekker CN mod eget id | `tls_ca.c`, `mqtt_client.c`, `cloud/mosquitto/zephyr_a_mtls.conf` | 10 | 🟡 | native_sim mod Mosquitto: forbindelse, ACL via CN, spærret certifikat afvist, forkert certifikat opdaget, enhed uden certifikat afvist. +1,5 kB pr. handshake. Mangler: VPS + hardware |
 | N-05 | Bootloader-verifikation (MCUboot) | `SB_CONFIG_BOOT_SIGNATURE_TYPE_ECDSA_P256`, egen nøgle i `certs\` (gitignored, `new-signing-key.ps1`), `BOOT_VALIDATE_SLOT0=y`, downgrade-spærring. ROM secure boot v2 kun beskrevet (irreversibel eFuse) | `app/sysbuild.conf`, `app/sysbuild/mcuboot.conf`, `build.ps1` | 8 | 🟡 | `imgtool verify` OK, forkert nøgle/ændret byte afvist. Hardware: app signeret med anden nøgle må ikke starte (`08-sikkerhed.md` §6.1) |
-| N-06 | Memory layout-diagram | Fra `build/*/zephyr.map` + partitionstabel (4 MB) | `docs/` | 11 | ⬜ | |
+| N-06 | Memory layout-diagram | `scripts/memory_layout.py` genererer flash-partitioner, HP-SRAM (sektioner, største objekter) og LP-SRAM fra devicetree, linker-map og ELF. `--check` håndhæver grænser (slot ≤ 50 %, SRAM ≤ 75 %, LP ≤ 50 %). Overlay til stack-måling på hardware | `docs/11-afslutning.md` §2, `app/overlay-stack-usage.conf` | 11 | ✅ | Genereret fra standard-build: 24 % af slot0, 42 % SRAM, LP 38 %. Stack-tal fra hardware udfyldes i §2.2 |
 
 ## Out of scope
 

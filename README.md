@@ -57,6 +57,30 @@ zephyr_a/                 <- west manifest-repo (T2) – ligger i C:\zp\zephyr_a
 └── .devcontainer/        Valgfrit Docker-miljø
 ```
 
-## Status
+## Dokumentation
 
-Se [docs/STATUS.md](docs/STATUS.md).
+| Del | Dokument | Indhold |
+|---|---|---|
+| 1 | [01-opsaetning-windows.md](docs/01-opsaetning-windows.md) | Værktøjer, west-workspace, byg/flash på Windows 11 |
+| 2 | [02-arkitektur.md](docs/02-arkitektur.md), [02-kravmatrix.md](docs/02-kravmatrix.md), [hardware.md](docs/hardware.md) | Moduler, tråde, pins, fund F1–F8, krav og status |
+| 3 | [03-dataopsamling.md](docs/03-dataopsamling.md) | Måling, Modbus RTU, simulering |
+| 4 | [04-netvaerk.md](docs/04-netvaerk.md) | SIM7080G, PPP, Onomondo |
+| 5 | [05-cloud.md](docs/05-cloud.md) | VPS: Mosquitto, Node-RED, certbot, firewall |
+| 6 | [06-mqtt-tls.md](docs/06-mqtt-tls.md) | MQTT over TLS 1.3, rod-CA'er |
+| 7 | [07-sparkplug-tid.md](docs/07-sparkplug-tid.md) | Sparkplug B, metrics, SNTP |
+| 8 | [08-sikkerhed.md](docs/08-sikkerhed.md), [SECURITY.md](SECURITY.md) | Trusselsmodel, SL, IEC 62443-4-2/CRA, signeret firmware |
+| 9 | [09-strom-data.md](docs/09-strom-data.md) | Light/deep sleep, interval-uplink, LP-kernen, databudget |
+| 10 | [10-nice-to-have.md](docs/10-nice-to-have.md) | Task watchdog, fail2ban, mTLS, dashboard |
+| 11 | [11-afslutning.md](docs/11-afslutning.md) | Memory layout, test, hardware-acceptprotokol, rapportmateriale |
+
+Ændringer pr. del: [CHANGELOG.md](CHANGELOG.md). Status: [docs/STATUS.md](docs/STATUS.md).
+
+## Test
+
+```bash
+# Linux, WSL eller devcontainer: alle host-tests (ztest, native_sim mod Mosquitto, Node-RED, PKI, fail2ban, ShellCheck)
+scripts/run-host-tests.sh <west-workspace> [<firmware build dir>]
+```
+
+Kører også automatisk på GitHub ved hvert push (`.github/workflows/host-tests.yml`).
+Hardwaretest: [docs/11-afslutning.md](docs/11-afslutning.md) §4.
