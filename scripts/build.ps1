@@ -94,6 +94,7 @@
     .\scripts\build.ps1 -Release -Sbom
     .\scripts\build.ps1 -LowPower
     .\scripts\build.ps1 -Mtls -DeviceId esp32c6-14c19fe0ab24
+    .\scripts\build.ps1 -ExtraConf app\overlay-stack-usage.conf
     .\scripts\build.ps1 -LowPower -Release
 #>
 [CmdletBinding()]
