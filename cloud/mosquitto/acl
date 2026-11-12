@@ -1,0 +1,30 @@
+# Zephyr_A - Mosquitto access control list (least privilege)
+# Installed to /etc/mosquitto/acl by cloud/scripts/30-mosquitto.sh
+# Contains no secrets (passwords are in /etc/mosquitto/passwd on the server only).
+#
+# Sparkplug B topic namespace (group id "ProjektA"):
+#   spBv1.0/ProjektA/{NBIRTH|NDEATH|NDATA|NCMD}/<edge_node_id>
+#   spBv1.0/ProjektA/{DBIRTH|DDEATH|DDATA|DCMD}/<edge_node_id>/<device_id>
+#   spBv1.0/STATE/<host_application_id>
+
+# --- Node-RED: Sparkplug host application ------------------------------------
+# Reads all data, may send NCMD/DCMD and publish its STATE.
+user nodered
+topic readwrite spBv1.0/#
+
+# --- Edge nodes (devices) -----------------------------------------------------
+# The MQTT user name IS the Sparkplug edge node id (e.g. esp32c6-14c19fe0ab24),
+# so %u limits every device to its own topics. A device can therefore not
+# publish data in another device's name, and cannot send commands.
+pattern write spBv1.0/ProjektA/NBIRTH/%u
+pattern write spBv1.0/ProjektA/NDEATH/%u
+pattern write spBv1.0/ProjektA/NDATA/%u
+pattern write spBv1.0/ProjektA/DBIRTH/%u/+
+pattern write spBv1.0/ProjektA/DDEATH/%u/+
+pattern write spBv1.0/ProjektA/DDATA/%u/+
+pattern read spBv1.0/ProjektA/NCMD/%u
+pattern read spBv1.0/ProjektA/DCMD/%u/+
+
+# Sparkplug 3.0 "primary host" STATE (spBv1.0/STATE/<host_id>) is not used yet.
+# If it is introduced, add a line per host, e.g.:  topic read spBv1.0/STATE/nodered
+# under each device user, or a pattern without wildcards for the host id.

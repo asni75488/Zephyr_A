@@ -1,0 +1,57 @@
+/*
+ * Zephyr_A - Modbus RTU variant: RS485 on UART0, console on USB Serial/JTAG
+ *
+ * Used together with app.overlay by scripts\build.ps1 -ModbusRtu.
+ * Decision and reasoning: docs/02-arkitektur.md section 6.3.
+ * Deviations are listed in docs/hardware.md.
+ *
+ * Deviations from the board devicetree:
+ *   1. Console + shell moved from uart0 to usb_serial (the "USB" USB-C port).
+ *      The ROM bootloader and MCUboot still print on the "UART" port.
+ *   2. uart0 re-routed from GPIO16/17 (USB-UART bridge) to
+ *      GPIO20 (TX -> transceiver DI) / GPIO21 (RX <- transceiver RO).
+ *   3. Modbus serial node on uart0 with driver-enable on GPIO23
+ *      (-> DE and /RE tied together on a MAX3485-type transceiver).
+ *      Remove de-gpios for transceivers with automatic direction control.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/ {
+	chosen {
+		zephyr,console = &usb_serial;
+		zephyr,shell-uart = &usb_serial;
+	};
+};
+
+&usb_serial {
+	status = "okay";
+};
+
+&pinctrl {
+	uart0_rs485: uart0_rs485 {
+		group1 {
+			pinmux = <UART0_TX_GPIO20>;
+			output-high;
+		};
+
+		group2 {
+			pinmux = <UART0_RX_GPIO21>;
+			bias-pull-up;
+		};
+	};
+};
+
+&uart0 {
+	pinctrl-0 = <&uart0_rs485>;
+	pinctrl-names = "default";
+	current-speed = <9600>;
+	status = "okay";
+
+	modbus0 {
+		compatible = "zephyr,modbus-serial";
+		status = "okay";
+		/* DE and /RE of the transceiver connected together: high = transmit */
+		de-gpios = <&gpio0 23 GPIO_ACTIVE_HIGH>;
+	};
+};

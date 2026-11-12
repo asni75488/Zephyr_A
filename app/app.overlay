@@ -1,0 +1,104 @@
+/*
+ * Zephyr_A - devicetree overlay for esp32c6_devkitc/esp32c6/hpcore
+ *
+ * All deviations from the board devicetree
+ * (zephyr/boards/espressif/esp32c6_devkitc/esp32c6_devkitc_hpcore.dts)
+ * are made here and documented in docs/hardware.md.
+ *
+ * Console stays on UART0 (GPIO16 TX / GPIO17 RX),
+ * which is wired to the USB-to-UART bridge on the "UART" USB-C port.
+ *
+ * Flash size (4 MB instead of the board's 8 MB) is set with the official
+ * snippet espressif-flash-4M (scripts/build.ps1), not in this file.
+ *
+ * Part 4 (cellular): see docs/04-netvaerk.md.
+ *
+ * Modbus RTU variant (RS485 on UART0, console on USB Serial/JTAG): see
+ * app/modbus-rtu.overlay, used by scripts\build.ps1 -ModbusRtu.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/ {
+	aliases {
+		modem = &modem;
+	};
+};
+
+/* Part 3: enable the internal temperature sensor (disabled in the SoC dtsi).
+ * Read with the Zephyr sensor API, channel SENSOR_CHAN_DIE_TEMP.
+ */
+&coretemp {
+	status = "okay";
+};
+
+/* Part 4: UART1 for the M5Stamp CAT-M (SIMCom SIM7080G), 115200 8N1.
+ *   ESP32-C6 GPIO18 (UART1 TX) -> module RX
+ *   ESP32-C6 GPIO19 (UART1 RX) <- module TX
+ * No RTS/CTS lines are connected (the module has none on its header).
+ * The pull-up on RX keeps the line idle-high while the modem starts.
+ */
+&pinctrl {
+	uart1_default: uart1_default {
+		group1 {
+			pinmux = <UART1_TX_GPIO18>;
+			output-high;
+		};
+
+		group2 {
+			pinmux = <UART1_RX_GPIO19>;
+			bias-pull-up;
+		};
+	};
+};
+
+&uart1 {
+	status = "okay";
+	current-speed = <115200>;
+	pinctrl-0 = <&uart1_default>;
+	pinctrl-names = "default";
+
+	/* Zephyr's generic cellular driver (drivers/modem/modem_cellular.c),
+	 * SIM7080 variant: CMUX + PPP, chat scripts for SIMCom SIM7080.
+	 */
+	modem: modem {
+		compatible = "simcom,sim7080";
+		status = "okay";
+
+		/* The module has NO PWRKEY pin: it powers on by itself when it gets
+		 * 5 V. "autostarts" tells the driver not to pulse a power key on
+		 * resume, but to wait for the modem to be ready.
+		 *
+		 * The simcom,sim7080 binding still REQUIRES mdm-power-gpios. GPIO22
+		 * is a placeholder and must NOT be connected to anything. The driver
+		 * only pulses it on suspend/recovery, which has no effect.
+		 */
+		autostarts;
+		mdm-power-gpios = <&gpio0 22 GPIO_ACTIVE_HIGH>;
+	};
+};
+
+/* Part 9: light sleep. The RTC timer wakes the HP core from light sleep
+ * (power state "standby") in time for the next kernel timeout, e.g. the
+ * next measurement (Zephyr 4.4.0 samples/boards/espressif/light_sleep).
+ */
+&rtc_timer {
+	status = "okay";
+	wakeup-source;
+};
+
+/* Part 9: memory shared with the LP core (app/common/lp_shared.h). The last
+ * 64 B of the LP SRAM area reserved for the LP image (ulp_ram) are given to
+ * app_lp_shm. app/remote/boards/esp32c6_devkitc_lpcore.overlay makes the
+ * same change, so both images agree on the address (0x50003bc0).
+ */
+&ulp_ram {
+	reg = <0x0 0x3bc0>;
+};
+
+&sramlp {
+	app_lp_shm: memory@3bc0 {
+		compatible = "mmio-sram";
+		reg = <0x3bc0 0x40>;
+	};
+};
